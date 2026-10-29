@@ -36,8 +36,8 @@ public class RuleUpdateWorker extends Worker {
     private static final String TAG = "RuleUpdateWorker";
     private static final String WORK_NAME = "bettingshield_rule_update";
     
-    // Secure HTTPS endpoint for signed rule updates (e.g. Supabase storage / CDN)
-    private static final String DEFAULT_UPDATE_URL = "https://updates.bettingshield.org/v1/rules.json";
+    // Dynamic Hub API endpoint for rules
+    public static final String DEFAULT_UPDATE_URL = "http://192.168.31.186:8085/api/rules";
 
     public RuleUpdateWorker(@NonNull Context context, @NonNull WorkerParameters workerParams) {
         super(context, workerParams);
@@ -155,15 +155,59 @@ public class RuleUpdateWorker extends Worker {
     public static void schedulePeriodicUpdates(Context context) {
         Constraints constraints = new Constraints.Builder()
                 .setRequiredNetworkType(NetworkType.CONNECTED)
-                .setRequiresBatteryNotLow(true)
                 .build();
 
         PeriodicWorkRequest updateRequest =
-                new PeriodicWorkRequest.Builder(RuleUpdateWorker.class, 24, TimeUnit.HOURS)
+                new PeriodicWorkRequest.Builder(RuleUpdateWorker.class, 15, TimeUnit.MINUTES)
                         .setConstraints(constraints)
                         .build();
 
         WorkManager.getInstance(context).enqueue(updateRequest);
-        Log.i(TAG, "Scheduled 24-hour periodic update worker");
+        Log.i(TAG, "Scheduled periodic update worker");
+    }
+
+    /**
+     * Performs a direct sync on the calling thread.
+     */
+    public static void syncDirect(Context context) {
+        try {
+            ProtectionDatabase db = ProtectionDatabase.getDatabase(context);
+            ProtectionDao dao = db.protectionDao();
+            HttpURLConnection connection = null;
+            try {
+                URL url = new URL(DEFAULT_UPDATE_URL);
+                connection = (HttpURLConnection) url.openConnection();
+                connection.setRequestMethod("GET");
+                connection.setConnectTimeout(4000);
+                connection.setReadTimeout(4000);
+                if (connection.getResponseCode() == 200) {
+                    BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream()));
+                    StringBuilder sb = new StringBuilder();
+                    String line;
+                    while ((line = reader.readLine()) != null) sb.append(line);
+                    reader.close();
+
+                    Gson gson = new Gson();
+                    BlocklistPayload payload = gson.fromJson(sb.toString(), BlocklistPayload.class);
+                    if (payload != null && payload.getDomains() != null) {
+                        long now = System.currentTimeMillis();
+                        List<BlockedDomain> newDomains = new ArrayList<>();
+                        for (String domain : payload.getDomains()) {
+                            newDomains.add(new BlockedDomain(domain, "synced_wagering", false, now));
+                        }
+                        db.runInTransaction(() -> {
+                            dao.clearSyncedBlockedDomains();
+                            dao.insertDomains(newDomains);
+                        });
+                        ProtectionManager.getInstance(context).reloadRulesFromDatabase();
+                        Log.i(TAG, "Direct sync completed! Total domains: " + newDomains.size());
+                    }
+                }
+            } finally {
+                if (connection != null) connection.disconnect();
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Direct sync skipped (offline or server not reachable): " + e.getMessage());
+        }
     }
 }

@@ -78,6 +78,9 @@ public class MainActivity extends AppCompatActivity {
         initViews();
         observeProtectionState();
         observeDatabaseCounts();
+        java.util.concurrent.Executors.newSingleThreadExecutor().execute(() -> {
+            RuleUpdateWorker.syncDirect(getApplicationContext());
+        });
     }
 
     private void initViews() {

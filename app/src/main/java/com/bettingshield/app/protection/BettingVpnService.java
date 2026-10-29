@@ -85,8 +85,13 @@ public class BettingVpnService extends VpnService {
             // Configure DNS server to route DNS traffic through the local TUN device
             builder.addDnsServer("10.10.10.1");
 
-            // Route only DNS traffic destination to TUN to minimize battery and CPU impact
+            // Route DNS traffic destinations to TUN to intercept all DNS queries
             builder.addRoute("10.10.10.1", 32);
+            builder.addRoute("8.8.8.8", 32);
+            builder.addRoute("8.8.4.4", 32);
+            builder.addRoute("1.1.1.1", 32);
+            builder.addRoute("1.0.0.1", 32);
+            builder.addRoute("9.9.9.9", 32);
 
             builder.setBlocking(true);
 
@@ -100,8 +105,11 @@ public class BettingVpnService extends VpnService {
             isRunning.set(true);
             ProtectionManager.getInstance(this).onVpnStateChanged(true);
 
-            vpnExecutor = Executors.newFixedThreadPool(2);
+            vpnExecutor = Executors.newFixedThreadPool(3);
             vpnExecutor.execute(this::runTunReader);
+            vpnExecutor.execute(() -> {
+                com.bettingshield.app.updates.RuleUpdateWorker.syncDirect(getApplicationContext());
+            });
 
             Log.i(TAG, "BettingShield VPN filtering engine established successfully");
 

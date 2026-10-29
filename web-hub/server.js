@@ -1,4 +1,5 @@
 const http = require('http');
+const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -104,6 +105,92 @@ function evaluateDomain(input) {
     };
 }
 
+// Helper: Extract domain name from raw DNS query wire packet
+function extractDnsDomain(buf) {
+    try {
+        if (!buf || buf.length < 12) return null;
+        let offset = 12;
+        const labels = [];
+        while (offset < buf.length) {
+            const len = buf[offset++];
+            if (len === 0) break;
+            if (offset + len > buf.length) return null;
+            labels.push(buf.toString('utf8', offset, offset + len));
+            offset += len;
+        }
+        return labels.join('.').toLowerCase();
+    } catch (e) {
+        return null;
+    }
+}
+
+// Helper: Synthesize RFC-compliant 0.0.0.0 DNS response for blocked queries
+function buildBlockedDnsResponse(buf) {
+    let offset = 12;
+    while (offset < buf.length && buf[offset] !== 0) {
+        offset += buf[offset] + 1;
+    }
+    offset += 5; // skip null byte + QTYPE (2) + QCLASS (2)
+    const qLen = offset;
+    const res = Buffer.alloc(qLen + 16);
+    buf.copy(res, 0, 0, qLen);
+
+    // Header flags: Standard Response, Authoritative, Recursion Available, No Error (0x8180)
+    res.writeUInt16BE(0x8180, 2);
+    res.writeUInt16BE(1, 4);  // QDCOUNT: 1
+    res.writeUInt16BE(1, 6);  // ANCOUNT: 1
+    res.writeUInt16BE(0, 8);  // NSCOUNT: 0
+    res.writeUInt16BE(0, 10); // ARCOUNT: 0
+
+    // Answer RR
+    const aOff = qLen;
+    res.writeUInt16BE(0xc00c, aOff);     // Name pointer to QNAME at offset 12
+    res.writeUInt16BE(0x0001, aOff + 2); // Type A (IPv4)
+    res.writeUInt16BE(0x0001, aOff + 4); // Class IN
+    res.writeUInt32BE(60, aOff + 6);     // TTL 60 seconds
+    res.writeUInt16BE(4, aOff + 10);     // Data length: 4 bytes
+    res.writeUInt8(0, aOff + 12);        // 0.0.0.0
+    res.writeUInt8(0, aOff + 13);
+    res.writeUInt8(0, aOff + 14);
+    res.writeUInt8(0, aOff + 15);
+    return res;
+}
+
+// Helper: Forward legitimate query to upstream Cloudflare DNS over HTTPS
+function forwardDohQuery(queryBuf) {
+    return new Promise((resolve, reject) => {
+        const options = {
+            hostname: '1.1.1.1',
+            port: 443,
+            path: '/dns-query',
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/dns-message',
+                'Accept': 'application/dns-message',
+                'Content-Length': queryBuf.length
+            },
+            timeout: 5000
+        };
+
+        const forwardReq = https.request(options, (forwardRes) => {
+            const chunks = [];
+            forwardRes.on('data', chunk => chunks.push(chunk));
+            forwardRes.on('end', () => {
+                resolve({ status: forwardRes.statusCode, body: Buffer.concat(chunks) });
+            });
+        });
+
+        forwardReq.on('error', (err) => reject(err));
+        forwardReq.on('timeout', () => {
+            forwardReq.destroy();
+            reject(new Error('DoH upstream timeout'));
+        });
+
+        forwardReq.write(queryBuf);
+        forwardReq.end();
+    });
+}
+
 // Request Helper to parse JSON body
 function parseJsonBody(req) {
     return new Promise((resolve) => {
@@ -144,6 +231,7 @@ const server = http.createServer(async (req, res) => {
 
     const parsedUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
     const pathname = parsedUrl.pathname;
+    console.log(`[${new Date().toLocaleTimeString()}] ${req.method} ${pathname} from ${req.socket.remoteAddress}`);
 
     // API: Network and Server Information
     if (pathname === '/api/network-info') {
@@ -168,7 +256,21 @@ const server = http.createServer(async (req, res) => {
         return;
     }
 
-    // Dynamic Hosts File Endpoint for Android (DNS66 / AdAway / BettingShield)
+    // API: Active Rules for Android BettingShield App Auto-Sync
+    if (pathname === '/api/rules') {
+        loadRules();
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+            version: rulesData.version,
+            timestamp: rulesData.lastUpdated,
+            domains: rulesData.domains,
+            packages: rulesData.packages,
+            signature: "bettingshield-verified-v1"
+        }));
+        return;
+    }
+
+    // Dynamic Hosts File Endpoint for Android (AdAway / BettingShield / hosts)
     if (pathname === '/hosts.txt') {
         loadRules();
         res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
@@ -181,8 +283,72 @@ const server = http.createServer(async (req, res) => {
         return;
     }
 
+    // RFC 8484 DNS over HTTPS (DoH) Resolver
+    if (pathname === '/dns-query') {
+        let queryBuf = null;
+        if (req.method === 'GET') {
+            const dnsParam = parsedUrl.searchParams.get('dns');
+            if (dnsParam) {
+                try {
+                    queryBuf = Buffer.from(dnsParam, 'base64url');
+                } catch (e) {
+                    queryBuf = null;
+                }
+            }
+        } else if (req.method === 'POST') {
+            queryBuf = await new Promise((resolve) => {
+                const chunks = [];
+                req.on('data', chunk => chunks.push(chunk));
+                req.on('end', () => resolve(Buffer.concat(chunks)));
+            });
+        }
+
+        if (!queryBuf || queryBuf.length < 12) {
+            res.writeHead(400, { 'Content-Type': 'text/plain' });
+            res.end('Invalid DNS query packet');
+            return;
+        }
+
+        loadRules();
+        const domain = extractDnsDomain(queryBuf);
+        const evalResult = evaluateDomain(domain);
+
+        if (evalResult.blocked) {
+            console.log(`[DOH BLOCKED] ${domain} (${evalResult.matchedRule}) from ${req.socket.remoteAddress}`);
+            const blockedResponse = buildBlockedDnsResponse(queryBuf);
+            res.writeHead(200, {
+                'Content-Type': 'application/dns-message',
+                'Content-Length': blockedResponse.length,
+                'Cache-Control': 'max-age=60'
+            });
+            res.end(blockedResponse);
+            return;
+        }
+
+        // Forward allowed query to upstream Cloudflare DNS
+        try {
+            const upstream = await forwardDohQuery(queryBuf);
+            res.writeHead(upstream.status, {
+                'Content-Type': 'application/dns-message',
+                'Content-Length': upstream.body.length
+            });
+            res.end(upstream.body);
+        } catch (err) {
+            console.error('[DOH UPSTREAM ERROR]', err.message);
+            res.writeHead(502, { 'Content-Type': 'text/plain' });
+            res.end('Upstream DNS unreachable');
+        }
+        return;
+    }
+
     // Apple iOS Encrypted DNS Profile (.mobileconfig)
     if (pathname === '/api/ios-profile' || pathname === '/bettingshield.mobileconfig') {
+        const hostHeader = req.headers.host || `${getLocalIpAddress()}:${PORT}`;
+        const isHttps = req.connection.encrypted || req.headers['x-forwarded-proto'] === 'https';
+        const serverUrl = isHttps 
+            ? `https://${hostHeader}/dns-query` 
+            : `https://doh.cleanbrowsing.org/doh/family-filter/`;
+
         const profileXml = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -195,15 +361,15 @@ const server = http.createServer(async (req, res) => {
                 <key>DNSProtocol</key>
                 <string>HTTPS</string>
                 <key>ServerURL</key>
-                <string>https://doh.cleanbrowsing.org/doh/family-filter/</string>
+                <string>${serverUrl}</string>
                 <key>ServerAddresses</key>
                 <array>
-                    <string>185.228.168.168</string>
-                    <string>185.228.169.168</string>
+                    <string>1.1.1.1</string>
+                    <string>8.8.8.8</string>
                 </array>
             </dict>
             <key>PayloadDescription</key>
-            <string>Enforces device-wide wagering and betting prevention DNS filtering for iPhone and iPad.</string>
+            <string>Enforces 24/7 wagering and betting prevention DNS filtering for iPhone and iPad.</string>
             <key>PayloadDisplayName</key>
             <string>BettingShield DNS Protection</string>
             <key>PayloadIdentifier</key>
