@@ -56,7 +56,7 @@ public abstract class ProtectionDatabase extends RoomDatabase {
                 long now = System.currentTimeMillis();
                 List<BlockedDomain> defaultDomains = new ArrayList<>();
                 String[] domains = {
-                    "bet365.com", "betway.com", "1xbet.com", "parimatch.com", "parimatch.in",
+                    "playveer.com", "bet365.com", "betway.com", "1xbet.com", "parimatch.com", "parimatch.in",
                     "stake.com", "pokerstars.com", "unibet.com", "bwin.com", "williamhill.com",
                     "ladbrokes.com", "dafabet.com", "skybet.com", "paddypower.com", "betfair.com",
                     "draftkings.com", "fanduel.com", "betmgm.com", "pointsbet.com", "caesars.com",
