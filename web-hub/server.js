@@ -170,6 +170,7 @@ const server = http.createServer(async (req, res) => {
 
     // Dynamic Hosts File Endpoint for Android (DNS66 / AdAway / BettingShield)
     if (pathname === '/hosts.txt') {
+        loadRules();
         res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
         let hosts = `# BettingShield Dynamic Wagering Blocklist\n# Version: ${rulesData.version}\n# Updated: ${new Date(rulesData.lastUpdated).toISOString()}\n\n`;
         for (const domain of rulesData.domains) {
