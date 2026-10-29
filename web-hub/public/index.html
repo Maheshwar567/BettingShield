@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>BettingShield — Mobile Testing Hub & Protection Suite</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- Top Announcement Bar -->
+  <header class="top-nav">
+    <div class="nav-content">
+      <div class="brand">
+        <div class="shield-badge">🛡️</div>
+        <div>
+          <h1>BettingShield</h1>
+          <span class="sub">Privacy-First Wagering Prevention</span>
+        </div>
+      </div>
+      <div style="display: flex; gap: 10px; align-items: center;">
+        <div class="ip-chip" id="networkChip">
+          <span class="dot"></span>
+          <span id="ipText">http://192.168.31.186:8085</span>
+        </div>
+        <a href="/admin.html" class="btn-sm" style="background:#0f172a; border: 1px solid #334155; text-decoration: none; padding: 7px 12px; display: inline-flex; align-items: center; gap: 4px;">
+          <span>🔒 Admin Portal</span>
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <main class="main-layout">
+
+    <!-- Left Column / Hero on Mobile: QR Code & Connection Hub -->
+    <section class="connect-panel">
+      <div class="card connect-card">
+        <h2>📱 Open on Android &amp; iOS Phones</h2>
+        <p class="card-desc">Scan with your phone's camera (iPhone Safari or Android Chrome) to test and run on your mobile device immediately:</p>
+        
+        <div class="qr-container">
+          <img id="qrImage" src="https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=http%3A%2F%2F192.168.31.186%3A8085" alt="Mobile QR Code">
+          <div class="qr-label">Direct Mobile Link</div>
+        </div>
+
+        <div class="url-copy-box">
+          <code id="mobileUrlDisplay">http://192.168.31.186:8085</code>
+          <button id="copyUrlBtn" class="btn-sm">Copy Link</button>
+        </div>
+
+        <!-- Quick Platform Actions -->
+        <div class="platform-guides">
+          <div class="guide-box android-box">
+            <div class="guide-header">
+              <span class="platform-icon">🤖</span>
+              <strong>Android App (Direct APK Download)</strong>
+            </div>
+            <p>Install directly on any Android phone. Automatically filters and blocks betting websites across Chrome &amp; apps with 1-tap activation:</p>
+            <a href="/BettingShield.apk" download="BettingShield.apk" class="btn-platform android-btn">
+              <span>📥 Download Android App (APK - 3.8 MB)</span>
+            </a>
+          </div>
+
+          <div class="guide-box ios-box">
+            <div class="guide-header">
+              <span class="platform-icon">🍏</span>
+              <strong>iOS (iPhone / iPad) Device-Wide Filter</strong>
+            </div>
+            <p>Install Apple Encrypted DNS Profile to block gambling websites and apps device-wide on iOS without an App Store app:</p>
+            <a href="/api/ios-profile" class="btn-platform ios-btn">
+              <span>📥 Install iOS Profile</span>
+            </a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Right Column: Interactive Phone Simulator & Live Rule Engine -->
+    <section class="simulator-panel">
+
+      <!-- Navigation Tabs (Only User Safe Tabs) -->
+      <div class="tab-bar">
+        <button class="tab-btn active" data-tab="simulator">📱 App Simulator</button>
+        <button class="tab-btn" data-tab="tester">⚡ Live URL Filter Tester</button>
+        <button class="tab-btn" data-tab="pause-demo">🧘 Mindful Pause Screen</button>
+      </div>
+
+      <!-- Tab 1: Interactive Phone Simulator -->
+      <div class="tab-content active" id="tab-simulator">
+        <div class="phone-mockup">
+          <div class="phone-notch"></div>
+          
+          <!-- Screen 1: Dashboard -->
+          <div class="phone-screen" id="screenDashboard">
+            <div class="app-header">
+              <div class="app-title">BettingShield</div>
+              <button class="icon-btn" id="btnAppInfo">⚙️</button>
+            </div>
+
+            <div class="status-card" id="statusCard">
+              <div class="status-shield-icon" id="statusIcon">🛡️</div>
+              <h3 id="statusTitle">Protection is Active</h3>
+              <p id="statusSubtitle">Web and network requests to gambling domains are filtered locally.</p>
+              <button class="action-btn pause" id="btnToggleStatus">Pause Protection</button>
+            </div>
+
+            <div class="stats-grid">
+              <div class="stat-card">
+                <span class="stat-num" id="statDomains">39+</span>
+                <span class="stat-label">Known Domains Protected</span>
+              </div>
+              <div class="stat-card">
+                <span class="stat-num" id="statApps">15+</span>
+                <span class="stat-label">Identified Apps Watched</span>
+              </div>
+            </div>
+
+            <div class="meta-card">
+              <div class="meta-row">
+                <strong>Blocklist Version:</strong>
+                <span>v1.0 (Signed &amp; Verified)</span>
+              </div>
+              <div class="meta-row">
+                <strong>Engine Mode:</strong>
+                <span class="badge-success">Local DNS Sinkhole</span>
+              </div>
+              <div class="meta-row">
+                <strong>Browsing Logs:</strong>
+                <span class="badge-neutral">0 bytes (Zero Storage)</span>
+              </div>
+            </div>
+
+            <button class="text-btn" id="btnTriggerIntervention">Preview App Intervention Screen</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab 2: Live Domain & Subdomain Filter Tester -->
+      <div class="tab-content" id="tab-tester">
+        <div class="card">
+          <h2>⚡ Live Wagering Filter Diagnostic Sandbox</h2>
+          <p class="card-desc">Type any URL or domain below to test how BettingShield's exact and subdomain matching engine resolves it in real time:</p>
+
+          <div class="search-box">
+            <input type="text" id="domainInput" placeholder="Try bet365.com, sports.betway.com, or notbet365.com" value="bet365.com">
+            <button id="btnTestDomain" class="btn-primary">Evaluate</button>
+          </div>
+
+          <!-- Quick Test Chips -->
+          <div class="test-chips">
+            <span class="chip-label">Quick tests:</span>
+            <button class="test-chip" data-test="bet365.com">bet365.com</button>
+            <button class="test-chip" data-test="sports.api.stake.com">sports.api.stake.com</button>
+            <button class="test-chip" data-test="parimatch.in">parimatch.in</button>
+            <button class="test-chip" data-test="dream11.com">dream11.com</button>
+            <button class="test-chip clean" data-test="notbet365.com">notbet365.com (False Positive Test)</button>
+            <button class="test-chip clean" data-test="cricbuzz.com">cricbuzz.com</button>
+            <button class="test-chip clean" data-test="google.com">google.com</button>
+          </div>
+
+          <!-- Result Card -->
+          <div class="eval-result" id="evalResult">
+            <!-- Dynamically populated -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab: Mindful Pause Intervention Screen -->
+      <div class="tab-content" id="tab-pause-demo">
+        <div class="intervention-preview">
+          <div class="intervention-box">
+            <div class="inter-icon">🛡️</div>
+            <h2>Mindful Pause</h2>
+            <p class="inter-msg">
+              This application has been identified as a wagering service. Protection is active on this device.<br><br>
+              <strong>Take a deep breath and give yourself space.</strong>
+            </p>
+            <button class="btn-inter-primary" onclick="alert('Exiting to home screen... You are safe.')">Return to Home Screen</button>
+            <button class="btn-inter-secondary" onclick="alert('Intervention dismissed. DNS network blocking remains active in background.')">Stay in Shield</button>
+          </div>
+        </div>
+      </div>
+
+    </section>
+  </main>
+
+  <footer class="footer">
+    <p>BettingShield &bull; 100% Privacy-First &bull; Zero External Telemetry &bull; Offline Architecture</p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,124 @@
+{
+  "version": 2,
+  "lastUpdated": 1793259832526,
+  "adminPin": "8888",
+  "domains": [
+    "playveer.com",
+    "bet365.com",
+    "betway.com",
+    "1xbet.com",
+    "parimatch.com",
+    "parimatch.in",
+    "stake.com",
+    "pokerstars.com",
+    "unibet.com",
+    "bwin.com",
+    "williamhill.com",
+    "ladbrokes.com",
+    "dafabet.com",
+    "skybet.com",
+    "paddypower.com",
+    "betfair.com",
+    "draftkings.com",
+    "fanduel.com",
+    "betmgm.com",
+    "pointsbet.com",
+    "caesars.com",
+    "888sport.com",
+    "888casino.com",
+    "betsson.com",
+    "leovegas.com",
+    "coral.co.uk",
+    "betvictor.com",
+    "sportingbet.com",
+    "mpl.live",
+    "dream11.com",
+    "my11circle.com",
+    "winzo.games",
+    "rummypassion.com",
+    "junglee.com",
+    "betano.com",
+    "betclic.com",
+    "pinnacle.com",
+    "betonline.ag",
+    "bovada.lv",
+    "sportsbet.com.au"
+  ],
+  "packages": [
+    {
+      "package": "com.bet365",
+      "name": "Bet365",
+      "category": "Sports Betting"
+    },
+    {
+      "package": "com.betway.sports",
+      "name": "Betway",
+      "category": "Sportsbook"
+    },
+    {
+      "package": "com.parimatch",
+      "name": "Parimatch",
+      "category": "Sportsbook & Casino"
+    },
+    {
+      "package": "com.onebreak.stake",
+      "name": "Stake",
+      "category": "Casino & Wagering"
+    },
+    {
+      "package": "com.pokerstars",
+      "name": "PokerStars",
+      "category": "Poker"
+    },
+    {
+      "package": "com.unibet",
+      "name": "Unibet",
+      "category": "Sportsbook"
+    },
+    {
+      "package": "com.bwin",
+      "name": "Bwin",
+      "category": "Sportsbook"
+    },
+    {
+      "package": "com.williamhill",
+      "name": "William Hill",
+      "category": "Bookmaker"
+    },
+    {
+      "package": "com.ladbrokes",
+      "name": "Ladbrokes",
+      "category": "Bookmaker"
+    },
+    {
+      "package": "com.dafabet",
+      "name": "Dafabet",
+      "category": "Sportsbook"
+    },
+    {
+      "package": "com.draftkings.dknative",
+      "name": "DraftKings",
+      "category": "Daily Fantasy & Sports"
+    },
+    {
+      "package": "com.fanduel.sportsbook",
+      "name": "FanDuel",
+      "category": "Sportsbook"
+    },
+    {
+      "package": "com.dream11.android",
+      "name": "Dream11",
+      "category": "Fantasy Wagering"
+    },
+    {
+      "package": "com.mpl.androidapp",
+      "name": "MPL",
+      "category": "Real Money Gaming"
+    },
+    {
+      "package": "com.winzo.gold",
+      "name": "WinZO",
+      "category": "Real Money Gaming"
+    }
+  ]
+}

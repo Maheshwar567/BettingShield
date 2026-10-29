@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BettingShield — Master Admin Console</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <style>
+    body {
+      background-color: #0f172a;
+      color: #f1f5f9;
+    }
+    .admin-container {
+      max-width: 1000px;
+      margin: 32px auto;
+      padding: 0 20px;
+    }
+    .admin-card {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 16px;
+      padding: 24px;
+      margin-bottom: 24px;
+      box-shadow: 0 10px 25px -5px rgba(0,0,0,0.3);
+    }
+    .login-modal {
+      max-width: 420px;
+      margin: 80px auto;
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 20px;
+      padding: 32px;
+      text-align: center;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+    }
+    .pin-input {
+      width: 100%;
+      padding: 14px;
+      background: #0f172a;
+      border: 1px solid #475569;
+      border-radius: 10px;
+      color: #fff;
+      font-size: 20px;
+      text-align: center;
+      letter-spacing: 4px;
+      margin: 16px 0;
+      outline: none;
+    }
+    .pin-input:focus {
+      border-color: #38bdf8;
+    }
+    .admin-badge {
+      background: #0369a1;
+      color: #e0f2fe;
+      font-size: 11px;
+      font-weight: 800;
+      padding: 4px 10px;
+      border-radius: 6px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    .admin-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 24px;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .add-form {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+    .add-form input {
+      flex: 1;
+      min-width: 200px;
+      padding: 12px 14px;
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 10px;
+      color: #fff;
+      font-size: 14px;
+      outline: none;
+    }
+    .add-form input:focus {
+      border-color: #38bdf8;
+    }
+    .btn-action-add {
+      background: #0284c7;
+      color: #fff;
+      border: none;
+      padding: 12px 20px;
+      border-radius: 10px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .btn-action-add:hover {
+      background: #0369a1;
+    }
+    .search-filter {
+      width: 100%;
+      padding: 10px 14px;
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      color: #94a3b8;
+      font-size: 13px;
+      margin-bottom: 16px;
+      outline: none;
+    }
+    .rules-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    .rules-table th {
+      text-align: left;
+      padding: 10px 14px;
+      background: #0f172a;
+      color: #94a3b8;
+      border-bottom: 1px solid #334155;
+    }
+    .rules-table td {
+      padding: 12px 14px;
+      border-bottom: 1px solid #334155;
+    }
+    .rules-table tr:hover {
+      background: #243248;
+    }
+    .btn-remove {
+      background: #ef4444;
+      color: #fff;
+      border: none;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .btn-remove:hover {
+      background: #dc2626;
+    }
+    .tabs-header {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 20px;
+      border-bottom: 1px solid #334155;
+      padding-bottom: 10px;
+    }
+    .tab-link {
+      background: none;
+      border: none;
+      color: #94a3b8;
+      font-size: 15px;
+      font-weight: 700;
+      padding: 8px 14px;
+      cursor: pointer;
+      border-radius: 8px;
+    }
+    .tab-link.active {
+      background: #334155;
+      color: #38bdf8;
+    }
+    .logout-btn {
+      background: none;
+      border: 1px solid #475569;
+      color: #94a3b8;
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .toast-msg {
+      background: #10b981;
+      color: #fff;
+      padding: 10px 16px;
+      border-radius: 8px;
+      margin-bottom: 16px;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Login Gate -->
+  <div id="loginGate" class="login-modal">
+    <div style="font-size: 48px; margin-bottom: 12px;">🔒</div>
+    <h2>BettingShield Admin Console</h2>
+    <p style="color: #94a3b8; font-size: 13px; margin-top: 6px;">
+      Only authorized administrators can view, add, or remove blocked wagering websites.
+    </p>
+    <input type="password" id="pinInput" class="pin-input" placeholder="••••" maxlength="8" autofocus>
+    <div id="loginError" style="color: #f87171; font-size: 13px; margin-bottom: 12px; display: none;"></div>
+    <button id="btnLogin" class="btn-action-add" style="width: 100%; padding: 14px; font-size: 15px;">Unlock Admin Console</button>
+    <p style="color: #64748b; font-size: 12px; margin-top: 16px;">Default Master PIN: <code>8888</code></p>
+  </div>
+
+  <!-- Admin Dashboard -->
+  <div id="adminPanel" class="admin-container" style="display: none;">
+    <div class="admin-header">
+      <div>
+        <span class="admin-badge">Admin Mode Active</span>
+        <h1 style="font-size: 24px; font-weight: 800; margin-top: 6px;">Wagering Blocklist Control Center</h1>
+      </div>
+      <div style="display: flex; gap: 10px; align-items: center;">
+        <a href="/" style="color: #38bdf8; font-size: 13px; text-decoration: none;">&larr; Back to App Hub</a>
+        <button id="btnLogout" class="logout-btn">Log Out</button>
+      </div>
+    </div>
+
+    <div id="toastMessage" class="toast-msg"></div>
+
+    <!-- Tabs: Blocked Websites vs Watched Apps -->
+    <div class="tabs-header">
+      <button class="tab-link active" data-tab="sites">🌐 Blocked Websites (<span id="siteCount">0</span>)</button>
+      <button class="tab-link" data-tab="packages">📱 Watched Apps (<span id="packageCount">0</span>)</button>
+    </div>
+
+    <!-- Tab 1: Blocked Websites Management -->
+    <div id="tabSites" class="admin-card">
+      <h3 style="margin-bottom: 6px; font-size: 16px;">Add New Blocked Wagering Site</h3>
+      <p style="color: #94a3b8; font-size: 13px; margin-bottom: 16px;">
+        Any domain added here will be automatically blocked device-wide on Android and iOS. Subdomains are blocked automatically.
+      </p>
+
+      <form id="addDomainForm" class="add-form">
+        <input type="text" id="newDomainInput" placeholder="e.g. newbetting.com or stake.bet" required>
+        <button type="submit" class="btn-action-add">+ Add Blocked Site</button>
+      </form>
+
+      <input type="text" id="searchSites" class="search-filter" placeholder="Search blocked websites...">
+
+      <div style="overflow-x: auto; max-height: 480px;">
+        <table class="rules-table">
+          <thead>
+            <tr>
+              <th>Domain</th>
+              <th>Protection Scope</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="domainTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Tab 2: Watched Apps Management -->
+    <div id="tabPackages" class="admin-card" style="display: none;">
+      <h3 style="margin-bottom: 6px; font-size: 16px;">Add New Monitored Betting App</h3>
+      <p style="color: #94a3b8; font-size: 13px; margin-bottom: 16px;">
+        Add Android package IDs for betting apps to trigger automatic network blocking and mindful pause screens.
+      </p>
+
+      <form id="addPackageForm" class="add-form">
+        <input type="text" id="newPkgIdInput" placeholder="Package ID: e.g. com.betting.app" required>
+        <input type="text" id="newPkgNameInput" placeholder="App Name: e.g. BetFast">
+        <button type="submit" class="btn-action-add">+ Add App</button>
+      </form>
+
+      <input type="text" id="searchPackages" class="search-filter" placeholder="Search monitored apps...">
+
+      <div style="overflow-x: auto; max-height: 480px;">
+        <table class="rules-table">
+          <thead>
+            <tr>
+              <th>Package Identifier</th>
+              <th>App Name</th>
+              <th>Category</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="packageTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    let authToken = localStorage.getItem('bettingshield_admin_token') || '';
+    let rulesData = { domains: [], packages: [] };
+
+    const loginGate = document.getElementById('loginGate');
+    const adminPanel = document.getElementById('adminPanel');
+    const pinInput = document.getElementById('pinInput');
+    const btnLogin = document.getElementById('btnLogin');
+    const loginError = document.getElementById('loginError');
+    const btnLogout = document.getElementById('btnLogout');
+    const toastMessage = document.getElementById('toastMessage');
+
+    const siteCount = document.getElementById('siteCount');
+    const packageCount = document.getElementById('packageCount');
+    const domainTableBody = document.getElementById('domainTableBody');
+    const packageTableBody = document.getElementById('packageTableBody');
+    const searchSites = document.getElementById('searchSites');
+    const searchPackages = document.getElementById('searchPackages');
+
+    // Login Action
+    async function doLogin() {
+      const pin = pinInput.value.trim();
+      loginError.style.display = 'none';
+
+      try {
+        const res = await fetch('/api/admin/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pin })
+        });
+        const data = await res.json();
+
+        if (data.success) {
+          authToken = data.token;
+          localStorage.setItem('bettingshield_admin_token', authToken);
+          showAdminPanel();
+        } else {
+          loginError.textContent = data.error || 'Incorrect PIN';
+          loginError.style.display = 'block';
+        }
+      } catch (e) {
+        loginError.textContent = 'Server connection error';
+        loginError.style.display = 'block';
+      }
+    }
+
+    btnLogin.addEventListener('click', doLogin);
+    pinInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') doLogin(); });
+
+    btnLogout.addEventListener('click', () => {
+      authToken = '';
+      localStorage.removeItem('bettingshield_admin_token');
+      adminPanel.style.display = 'none';
+      loginGate.style.display = 'block';
+      pinInput.value = '';
+    });
+
+    function showToast(msg) {
+      toastMessage.textContent = msg;
+      toastMessage.style.display = 'block';
+      setTimeout(() => toastMessage.style.display = 'none', 2500);
+    }
+
+    // Load Rules
+    async function loadAdminRules() {
+      try {
+        const res = await fetch('/api/admin/rules', {
+          headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        if (res.status === 401) {
+          btnLogout.click();
+          return;
+        }
+        rulesData = await res.json();
+        renderDomains(rulesData.domains);
+        renderPackages(rulesData.packages);
+      } catch (e) {
+        console.error('Failed to load rules:', e);
+      }
+    }
+
+    function renderDomains(domains) {
+      domainTableBody.innerHTML = '';
+      siteCount.textContent = domains.length;
+
+      domains.forEach(d => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td><code style="color: #38bdf8; font-weight: 700;">${d}</code></td>
+          <td style="color: #94a3b8;">Exact &amp; All Subdomains (*.${d})</td>
+          <td><button class="btn-remove" onclick="deleteDomain('${d}')">Remove</button></td>
+        `;
+        domainTableBody.appendChild(tr);
+      });
+    }
+
+    function renderPackages(packages) {
+      packageTableBody.innerHTML = '';
+      packageCount.textContent = packages.length;
+
+      packages.forEach(p => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td><code style="color: #38bdf8;">${p.package}</code></td>
+          <td style="font-weight: 700;">${p.name}</td>
+          <td style="color: #94a3b8;">${p.category || 'Wagering'}</td>
+          <td><button class="btn-remove" onclick="deletePackage('${p.package}')">Remove</button></td>
+        `;
+        packageTableBody.appendChild(tr);
+      });
+    }
+
+    // Add Domain
+    document.getElementById('addDomainForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const domain = document.getElementById('newDomainInput').value.trim();
+      if (!domain) return;
+
+      const res = await fetch('/api/admin/add-domain', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`
+        },
+        body: JSON.stringify({ domain })
+      });
+      const data = await res.json();
+      if (data.success) {
+        document.getElementById('newDomainInput').value = '';
+        showToast(`Site blocked: ${domain}`);
+        loadAdminRules();
+      } else {
+        alert(data.error || 'Failed to add');
+      }
+    });
+
+    // Delete Domain
+    window.deleteDomain = async function(domain) {
+      if (!confirm(`Are you sure you want to remove ${domain} from the blocklist?`)) return;
+
+      const res = await fetch('/api/admin/delete-domain', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`
+        },
+        body: JSON.stringify({ domain })
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast(`Removed from blocklist: ${domain}`);
+        loadAdminRules();
+      }
+    };
+
+    // Add Package
+    document.getElementById('addPackageForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const pkg = document.getElementById('newPkgIdInput').value.trim();
+      const name = document.getElementById('newPkgNameInput').value.trim() || pkg;
+      if (!pkg) return;
+
+      const res = await fetch('/api/admin/add-package', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`
+        },
+        body: JSON.stringify({ package: pkg, name })
+      });
+      const data = await res.json();
+      if (data.success) {
+        document.getElementById('newPkgIdInput').value = '';
+        document.getElementById('newPkgNameInput').value = '';
+        showToast(`Added app: ${name}`);
+        loadAdminRules();
+      } else {
+        alert(data.error || 'Failed to add app');
+      }
+    });
+
+    // Delete Package
+    window.deletePackage = async function(pkg) {
+      if (!confirm(`Remove package ${pkg} from monitoring?`)) return;
+
+      const res = await fetch('/api/admin/delete-package', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`
+        },
+        body: JSON.stringify({ package: pkg })
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast(`Removed package: ${pkg}`);
+        loadAdminRules();
+      }
+    };
+
+    // Search Filters
+    searchSites.addEventListener('input', (e) => {
+      const q = e.target.value.toLowerCase().trim();
+      const filtered = rulesData.domains.filter(d => d.toLowerCase().includes(q));
+      renderDomains(filtered);
+    });
+
+    searchPackages.addEventListener('input', (e) => {
+      const q = e.target.value.toLowerCase().trim();
+      const filtered = rulesData.packages.filter(p =>
+        p.name.toLowerCase().includes(q) || p.package.toLowerCase().includes(q)
+      );
+      renderPackages(filtered);
+    });
+
+    // Tab Switching
+    document.querySelectorAll('.tab-link').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab-link').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const tab = btn.getAttribute('data-tab');
+        if (tab === 'sites') {
+          document.getElementById('tabSites').style.display = 'block';
+          document.getElementById('tabPackages').style.display = 'none';
+        } else {
+          document.getElementById('tabSites').style.display = 'none';
+          document.getElementById('tabPackages').style.display = 'block';
+        }
+      });
+    });
+
+    function showAdminPanel() {
+      loginGate.style.display = 'none';
+      adminPanel.style.display = 'block';
+      loadAdminRules();
+    }
+
+    if (authToken) {
+      showAdminPanel();
+    }
+  </script>
+</body>
+</html>

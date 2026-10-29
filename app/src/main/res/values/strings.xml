@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">BettingShield</string>
+    <string name="app_tagline">Discreet, privacy-first digital well-being protection</string>
+
+    <!-- Welcome & Intro Screen -->
+    <string name="welcome_title">Welcome to BettingShield</string>
+    <string name="welcome_subtitle">A quiet, personal guard for your digital environment.</string>
+    <string name="welcome_benefit_1_title">100% Local &amp; Private</string>
+    <string name="welcome_benefit_1_desc">All website and app filtering happens entirely on your phone. No browsing history or activity logs ever leave your device.</string>
+    <string name="welcome_benefit_2_title">Completely Discreet</string>
+    <string name="welcome_benefit_2_desc">No public alerts, no notifications to third parties or family, no shaming messages. Just simple, quiet protection.</string>
+    <string name="welcome_benefit_3_title">No Account Required</string>
+    <string name="welcome_benefit_3_desc">Ready immediately. No email, phone number, or sign-up needed.</string>
+    <string name="btn_get_started">Continue to Setup</string>
+
+    <!-- Consent & Privacy Screen -->
+    <string name="consent_title">Privacy Principles &amp; Consent</string>
+    <string name="consent_subtitle">We believe in absolute transparency and user dignity.</string>
+    <string name="consent_item_vpn">Local VPN: Used exclusively to inspect and filter DNS queries locally. We do NOT route your web traffic through remote proxy servers.</string>
+    <string name="consent_item_logs">Zero Telemetry: We do not collect, track, or share your visits, queries, or app usage.</string>
+    <string name="consent_item_control">Total User Control: You can pause or revoke protection at any time directly within the app.</string>
+    <string name="consent_checkbox">I understand and authorize BettingShield to protect this device</string>
+    <string name="btn_agree_continue">Agree &amp; Proceed</string>
+
+    <!-- Setup Screen -->
+    <string name="setup_title">Device Protection Setup</string>
+    <string name="setup_subtitle">Configure the protections you would like enabled.</string>
+    <string name="setup_vpn_title">Website Filter (Local VPN)</string>
+    <string name="setup_vpn_desc">Blocks access to known wagering domains at the local DNS level.</string>
+    <string name="setup_vpn_btn">Authorize Filter</string>
+    <string name="setup_usage_title">App Detection (Usage Access)</string>
+    <string name="setup_usage_desc">Optional: Identifies known betting apps when opened to provide a mindful pause screen.</string>
+    <string name="setup_usage_btn">Grant Access</string>
+    <string name="btn_finish_setup">Enter Dashboard</string>
+
+    <!-- Dashboard Screen -->
+    <string name="status_active_title">Protection is Active</string>
+    <string name="status_active_subtitle">Web and network requests to gambling domains are filtered locally.</string>
+    <string name="status_inactive_title">Protection is Paused</string>
+    <string name="status_inactive_subtitle">Tap below to resume local protection.</string>
+    <string name="action_resume">Enable Protection</string>
+    <string name="action_pause">Pause Protection</string>
+    <string name="stat_domains_blocked">Known Domains Protected</string>
+    <string name="stat_packages_blocked">Identified Apps Watched</string>
+    <string name="rules_version_label">Blocklist Version: %1$d (Updated: %2$s)</string>
+    <string name="btn_check_updates">Check Rule Updates</string>
+    <string name="btn_settings">Settings &amp; Exceptions</string>
+
+    <!-- Intervention / Mindful Pause Screen -->
+    <string name="intervention_title">Mindful Pause</string>
+    <string name="intervention_message">This application has been identified as a wagering service. Protection is active on this device.\n\nTake a deep breath and give yourself space.</string>
+    <string name="intervention_btn_home">Return to Home Screen</string>
+    <string name="intervention_btn_dismiss">Stay in Shield</string>
+
+    <!-- Settings Screen -->
+    <string name="settings_title">Settings &amp; Exceptions</string>
+    <string name="settings_section_rules">Filter Rules</string>
+    <string name="settings_section_exceptions">Custom Exceptions</string>
+    <string name="settings_add_exception">Add Allowed Domain</string>
+    <string name="settings_section_about">About &amp; Privacy</string>
+    <string name="settings_privacy_policy">Privacy Policy</string>
+    <string name="settings_vpn_status">VPN Tunnel Status</string>
+    <string name="settings_reset_rules">Reset Rules to Default</string>
+
+    <!-- Foreground Notification -->
+    <string name="notification_channel_name">Protection Service</string>
+    <string name="notification_channel_desc">Shows active status of the local DNS filter</string>
+    <string name="notification_title">BettingShield Active</string>
+    <string name="notification_text">Local web and app filtering is running quietly</string>
+
+    <!-- Device Admin (Optional) -->
+    <string name="device_admin_label">BettingShield App Manager</string>
+    <string name="device_admin_description">Permits suspension of listed wagering apps when provisioned on managed devices.</string>
+
+    <!-- Common -->
+    <string name="status_granted">Granted</string>
+    <string name="status_not_granted">Not Granted</string>
+    <string name="loading">Updating rules…</string>
+    <string name="update_success">Blocklist updated successfully!</string>
+    <string name="update_no_new">Blocklist is already up to date.</string>
+    <string name="update_failed">Update failed or invalid signature.</string>
+</resources>

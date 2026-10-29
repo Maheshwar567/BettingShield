@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: bettingshield-hub
+    runtime: node
+    plan: free
+    region: oregon
+    buildCommand: ""
+    startCommand: node web-hub/server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000

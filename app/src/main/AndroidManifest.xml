@@ -1,0 +1,145 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Network permissions for upstream DNS resolution and secure rule updates -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- Foreground service permissions for persistent VPN DNS filter -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SYSTEM_EXEMPTED" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Optional boot completion for automatic protection restoration -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!-- Usage access for optional foreground app detection (User-granted in Special App Access) -->
+    <uses-permission
+        android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
+
+    <!-- Package visibility declarations: In Android 11+ (API 30+), apps must declare explicit queries
+         to inspect presence of specific target packages without requesting broad QUERY_ALL_PACKAGES. -->
+    <queries>
+        <!-- International Sportsbooks & Betting Apps -->
+        <package android:name="com.bet365" />
+        <package android:name="com.betway.sports" />
+        <package android:name="com.parimatch" />
+        <package android:name="com.onebreak.stake" />
+        <package android:name="com.pokerstars" />
+        <package android:name="com.unibet" />
+        <package android:name="com.bwin" />
+        <package android:name="com.williamhill" />
+        <package android:name="com.ladbrokes" />
+        <package android:name="com.dafabet" />
+        <package android:name="com.skybet" />
+        <package android:name="com.paddypower" />
+        <package android:name="com.betfair" />
+        <package android:name="com.draftkings.dknative" />
+        <package android:name="com.fanduel.sportsbook" />
+        <package android:name="com.betmgm" />
+        <package android:name="com.pointsbet" />
+        <package android:name="com.caesars.sportsbook" />
+        <package android:name="com.eighteighteight.sport" />
+        <package android:name="com.betsson" />
+        <package android:name="com.leovegas" />
+        <package android:name="com.coral" />
+        <package android:name="com.betvictor" />
+        <package android:name="com.sportingbet" />
+        
+        <!-- Regional Real-Money Gaming & Fantasy Wagering Apps -->
+        <package android:name="com.dream11.android" />
+        <package android:name="com.my11circle.android" />
+        <package android:name="com.myteam11" />
+        <package android:name="com.mpl.androidapp" />
+        <package android:name="com.winzo.gold" />
+        <package android:name="com.junglee.rummy" />
+        <package android:name="com.rummypassion.app" />
+    </queries>
+
+    <application
+        android:name=".BettingShieldApp"
+        android:allowBackup="false"
+        android:dataExtractionRules="@null"
+        android:fullBackupContent="false"
+        android:icon="@drawable/ic_shield"
+        android:label="@string/app_name"
+        android:roundIcon="@drawable/ic_shield"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.BettingShield"
+        tools:targetApi="34">
+
+        <!-- Entry point Activity -->
+        <activity
+            android:name=".ui.MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Onboarding and Consent Flow Activities -->
+        <activity
+            android:name=".ui.WelcomeActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".ui.ConsentActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".ui.SetupActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".ui.SettingsActivity"
+            android:exported="false" />
+
+        <!-- Discreet Intervention Screen (Shown when target app opens) -->
+        <activity
+            android:name=".ui.InterventionActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:launchMode="singleInstance"
+            android:theme="@style/Theme.BettingShield.Intervention" />
+
+        <!-- Local DNS Sinkhole VPN Service -->
+        <service
+            android:name=".protection.BettingVpnService"
+            android:exported="false"
+            android:foregroundServiceType="systemExempted"
+            android:permission="android.permission.BIND_VPN_SERVICE">
+            <intent-filter>
+                <action android:name="android.net.VpnService" />
+            </intent-filter>
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Local DNS sinkhole for digital well-being content protection" />
+        </service>
+
+        <!-- Optional Foreground App Launch Monitoring Service -->
+        <service
+            android:name=".protection.AppLaunchMonitorService"
+            android:exported="false"
+            android:foregroundServiceType="systemExempted" />
+
+        <!-- Device Admin Receiver for Optional Managed/Enterprise Device Owner lockdown -->
+        <receiver
+            android:name=".protection.ShieldDeviceAdminReceiver"
+            android:description="@string/device_admin_description"
+            android:exported="true"
+            android:label="@string/device_admin_label"
+            android:permission="android.permission.BIND_DEVICE_ADMIN">
+            <meta-data
+                android:name="android.app.device_admin"
+                android:resource="@xml/device_admin_policy" />
+            <intent-filter>
+                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
+            </intent-filter>
+        </receiver>
+
+    </application>
+
+</manifest>
