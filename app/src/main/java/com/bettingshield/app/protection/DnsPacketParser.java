@@ -4,87 +4,128 @@ import java.nio.ByteBuffer;
 import java.util.Locale;
 
 /**
- * Lightweight pure-Java IPv4, UDP, and DNS wire protocol parser and builder.
+ * Lightweight pure-Java IPv4, IPv6, UDP, and DNS wire protocol parser and builder.
  * Operates on raw byte buffers without external native libraries.
  */
 public class DnsPacketParser {
 
     public static class DnsQueryInfo {
+        public final int ipVersion; // 4 or 6
         public final int transactionId;
         public final String qName;
         public final int qType;
         public final int qClass;
         public final int ipHeaderLen;
-        public final int udpHeaderLen;
+        public final int udpOffset;
         public final int dnsOffset;
+        public final int dnsPayloadLength;
         public final int questionEndOffset;
-        public final byte[] srcIp = new byte[4];
-        public final byte[] dstIp = new byte[4];
+        public final byte[] srcIp; // 4 bytes (IPv4) or 16 bytes (IPv6)
+        public final byte[] dstIp;
         public final int srcPort;
         public final int dstPort;
 
-        public DnsQueryInfo(int transactionId, String qName, int qType, int qClass,
-                            int ipHeaderLen, int udpHeaderLen, int dnsOffset, int questionEndOffset,
-                            byte[] srcIp, byte[] dstIp, int srcPort, int dstPort) {
+        public DnsQueryInfo(int ipVersion, int transactionId, String qName, int qType, int qClass,
+                            int ipHeaderLen, int udpOffset, int dnsOffset, int dnsPayloadLength,
+                            int questionEndOffset, byte[] srcIp, byte[] dstIp, int srcPort, int dstPort) {
+            this.ipVersion = ipVersion;
             this.transactionId = transactionId;
             this.qName = qName;
             this.qType = qType;
             this.qClass = qClass;
             this.ipHeaderLen = ipHeaderLen;
-            this.udpHeaderLen = udpHeaderLen;
+            this.udpOffset = udpOffset;
             this.dnsOffset = dnsOffset;
+            this.dnsPayloadLength = dnsPayloadLength;
             this.questionEndOffset = questionEndOffset;
-            System.arraycopy(srcIp, 0, this.srcIp, 0, 4);
-            System.arraycopy(dstIp, 0, this.dstIp, 0, 4);
+            this.srcIp = srcIp.clone();
+            this.dstIp = dstIp.clone();
             this.srcPort = srcPort;
             this.dstPort = dstPort;
         }
     }
 
     /**
-     * Parses an IPv4 UDP packet containing a DNS query.
-     * Returns null if the packet is not a valid IPv4 UDP DNS query.
+     * Parses an IPv4 or IPv6 UDP packet containing a DNS query.
+     * Returns null if the packet is not a valid DNS query.
      */
     public static DnsQueryInfo parseDnsQuery(byte[] packet, int length) {
-        if (length < 20 + 8 + 12) {
-            return null; // Minimum IPv4 (20) + UDP (8) + DNS header (12)
-        }
-
-        // 1. Verify IPv4
-        int versionAndIhl = packet[0] & 0xFF;
-        int version = versionAndIhl >> 4;
-        if (version != 4) {
-            return null; // IPv4 only for this parsing path
-        }
-
-        int ipHeaderLen = (versionAndIhl & 0x0F) * 4;
-        if (length < ipHeaderLen + 8 + 12) {
+        if (packet == null || length < 28) {
             return null;
         }
 
-        // 2. Verify Protocol is UDP (17)
-        int protocol = packet[9] & 0xFF;
-        if (protocol != 17) {
+        int version = (packet[0] & 0xFF) >> 4;
+        int ipHeaderLen;
+        int udpOffset;
+        int srcPort;
+        int dstPort;
+        int udpLen;
+        int dnsOffset;
+        int dnsPayloadLength;
+        byte[] srcIp;
+        byte[] dstIp;
+
+        if (version == 4) {
+            ipHeaderLen = (packet[0] & 0x0F) * 4;
+            if (ipHeaderLen < 20 || length < ipHeaderLen + 8 + 12) {
+                return null;
+            }
+            int protocol = packet[9] & 0xFF;
+            if (protocol != 17) { // 17 = UDP
+                return null;
+            }
+            udpOffset = ipHeaderLen;
+            srcPort = ((packet[udpOffset] & 0xFF) << 8) | (packet[udpOffset + 1] & 0xFF);
+            dstPort = ((packet[udpOffset + 2] & 0xFF) << 8) | (packet[udpOffset + 3] & 0xFF);
+            udpLen = ((packet[udpOffset + 4] & 0xFF) << 8) | (packet[udpOffset + 5] & 0xFF);
+
+            if (dstPort != 53 || udpLen < 20 || length < ipHeaderLen + udpLen) {
+                return null;
+            }
+
+            dnsOffset = udpOffset + 8;
+            dnsPayloadLength = udpLen - 8;
+
+            srcIp = new byte[4];
+            dstIp = new byte[4];
+            System.arraycopy(packet, 12, srcIp, 0, 4);
+            System.arraycopy(packet, 16, dstIp, 0, 4);
+
+        } else if (version == 6) {
+            ipHeaderLen = 40;
+            if (length < 40 + 8 + 12) {
+                return null;
+            }
+            int nextHeader = packet[6] & 0xFF;
+            if (nextHeader != 17) { // 17 = UDP
+                return null;
+            }
+            udpOffset = 40;
+            srcPort = ((packet[udpOffset] & 0xFF) << 8) | (packet[udpOffset + 1] & 0xFF);
+            dstPort = ((packet[udpOffset + 2] & 0xFF) << 8) | (packet[udpOffset + 3] & 0xFF);
+            udpLen = ((packet[udpOffset + 4] & 0xFF) << 8) | (packet[udpOffset + 5] & 0xFF);
+
+            if (dstPort != 53 || udpLen < 20 || length < ipHeaderLen + udpLen) {
+                return null;
+            }
+
+            dnsOffset = udpOffset + 8;
+            dnsPayloadLength = udpLen - 8;
+
+            srcIp = new byte[16];
+            dstIp = new byte[16];
+            System.arraycopy(packet, 8, srcIp, 0, 16);
+            System.arraycopy(packet, 24, dstIp, 0, 16);
+
+        } else {
             return null;
         }
 
-        byte[] srcIp = new byte[4];
-        byte[] dstIp = new byte[4];
-        System.arraycopy(packet, 12, srcIp, 0, 4);
-        System.arraycopy(packet, 16, dstIp, 0, 4);
-
-        // 3. UDP Header
-        int udpOffset = ipHeaderLen;
-        int srcPort = ((packet[udpOffset] & 0xFF) << 8) | (packet[udpOffset + 1] & 0xFF);
-        int dstPort = ((packet[udpOffset + 2] & 0xFF) << 8) | (packet[udpOffset + 3] & 0xFF);
-        int udpLen = ((packet[udpOffset + 4] & 0xFF) << 8) | (packet[udpOffset + 5] & 0xFF);
-
-        if (dstPort != 53 || length < ipHeaderLen + udpLen) {
-            return null; // Not destined for DNS port 53 or truncated
+        if (dnsPayloadLength < 12) {
+            return null;
         }
 
-        // 4. DNS Header
-        int dnsOffset = ipHeaderLen + 8;
+        // Parse DNS Header
         int transactionId = ((packet[dnsOffset] & 0xFF) << 8) | (packet[dnsOffset + 1] & 0xFF);
         int flags = ((packet[dnsOffset + 2] & 0xFF) << 8) | (packet[dnsOffset + 3] & 0xFF);
         boolean isQuery = (flags & 0x8000) == 0;
@@ -97,25 +138,24 @@ public class DnsPacketParser {
             return null;
         }
 
-        // 5. Parse Question Name (QNAME)
+        // Parse Question Name (QNAME)
         int pos = dnsOffset + 12;
+        int dnsEnd = dnsOffset + dnsPayloadLength;
         StringBuilder qNameBuilder = new StringBuilder();
 
-        while (pos < length) {
+        while (pos < dnsEnd) {
             int labelLen = packet[pos] & 0xFF;
             if (labelLen == 0) {
                 pos++; // End of QNAME
                 break;
             }
             if ((labelLen & 0xC0) != 0) {
-                // Compression pointer in query question is invalid in standard DNS
-                return null;
+                return null; // Pointer compression in query question is invalid
             }
             pos++;
-            if (pos + labelLen > length) {
+            if (pos + labelLen > dnsEnd) {
                 return null;
             }
-
             if (qNameBuilder.length() > 0) {
                 qNameBuilder.append('.');
             }
@@ -123,7 +163,7 @@ public class DnsPacketParser {
             pos += labelLen;
         }
 
-        if (pos + 4 > length) {
+        if (pos + 4 > dnsEnd) {
             return null; // Missing QTYPE or QCLASS
         }
 
@@ -132,13 +172,15 @@ public class DnsPacketParser {
         int questionEndOffset = pos + 4;
 
         return new DnsQueryInfo(
+                version,
                 transactionId,
                 qNameBuilder.toString(),
                 qType,
                 qClass,
                 ipHeaderLen,
-                8,
+                udpOffset,
                 dnsOffset,
+                dnsPayloadLength,
                 questionEndOffset,
                 srcIp,
                 dstIp,
@@ -148,126 +190,147 @@ public class DnsPacketParser {
     }
 
     /**
-     * Constructs a synthetic DNS response packet blocking the query (pointing to 0.0.0.0 or NXDOMAIN).
+     * Constructs a synthetic DNS response packet blocking the query (pointing to 0.0.0.0, ::, or NXDOMAIN).
      */
     public static byte[] buildBlockedDnsResponse(byte[] originalPacket, DnsQueryInfo info) {
-        int dnsQuestionLen = info.questionEndOffset - info.dnsOffset;
-        
-        // Response format:
-        // IPv4 Header (20 bytes)
-        // UDP Header (8 bytes)
-        // DNS Header (12 bytes)
-        // Question Section (dnsQuestionLen - 12 bytes)
-        // Answer Section (16 bytes for A record answer pointing to 0.0.0.0)
-        boolean isTypeA = (info.qType == 1); // 1 = A record
+        int questionSectionLen = info.questionEndOffset - (info.dnsOffset + 12);
 
-        int answerLen = isTypeA ? 16 : 0;
-        int totalDnsLen = dnsQuestionLen + answerLen;
-        int totalUdpLen = 8 + totalDnsLen;
-        int totalIpLen = 20 + totalUdpLen;
+        boolean isTypeA = (info.qType == 1);       // IPv4 A record
+        boolean isTypeAAAA = (info.qType == 28);   // IPv6 AAAA record
 
-        byte[] response = new byte[totalIpLen];
-        ByteBuffer buf = ByteBuffer.wrap(response);
-
-        // --- IPv4 Header ---
-        buf.put((byte) 0x45); // Version 4, IHL 5 (20 bytes)
-        buf.put((byte) 0x00); // DSCP/ECN
-        buf.putShort((short) totalIpLen);
-        buf.putShort((short) 0x1234); // Identification
-        buf.putShort((short) 0x4000); // Flags: Don't Fragment
-        buf.put((byte) 64);   // TTL
-        buf.put((byte) 17);   // Protocol: UDP
-        buf.putShort((short) 0); // Header Checksum placeholder
-
-        // Swap IP addresses (Response goes from original Dst to original Src)
-        buf.put(info.dstIp);
-        buf.put(info.srcIp);
-
-        // Compute and write IPv4 header checksum
-        int ipChecksum = computeIpChecksum(response, 0, 20);
-        buf.putShort(10, (short) ipChecksum);
-
-        // --- UDP Header ---
-        buf.putShort((short) info.dstPort); // Src Port (53)
-        buf.putShort((short) info.srcPort); // Dst Port (Client Port)
-        buf.putShort((short) totalUdpLen);
-        buf.putShort((short) 0x0000); // UDP checksum (optional in IPv4, 0 is valid)
-
-        // --- DNS Header ---
-        buf.putShort((short) info.transactionId);
-        // Flags: QR=1 (Response), AA=1, RA=1, RCODE = isTypeA ? NOERROR(0) : NXDOMAIN(3)
-        short flags = isTypeA ? (short) 0x8180 : (short) 0x8183;
-        buf.putShort(flags);
-        buf.putShort((short) 1); // QDCOUNT: 1
-        buf.putShort(isTypeA ? (short) 1 : (short) 0); // ANCOUNT: 1 if A, 0 if NXDOMAIN
-        buf.putShort((short) 0); // NSCOUNT: 0
-        buf.putShort((short) 0); // ARCOUNT: 0
-
-        // Copy Question Section directly from original packet
-        int questionStart = info.dnsOffset + 12;
-        int questionLength = info.questionEndOffset - questionStart;
-        buf.put(originalPacket, questionStart, questionLength);
-
-        // If Type A, append synthetic A answer: 0.0.0.0
+        int answerLen = 0;
         if (isTypeA) {
-            buf.putShort((short) 0xC00C); // Pointer to QNAME at offset 12 in DNS message
-            buf.putShort((short) 1);      // Type A
-            buf.putShort((short) 1);      // Class IN
-            buf.putInt(60);               // TTL: 60 seconds
-            buf.putShort((short) 4);      // Data Length: 4 bytes
-            buf.put((byte) 0);            // 0.0.0.0
-            buf.put((byte) 0);
-            buf.put((byte) 0);
-            buf.put((byte) 0);
+            answerLen = 16; // 2(ptr) + 2(type) + 2(class) + 4(ttl) + 2(len) + 4(ip)
+        } else if (isTypeAAAA) {
+            answerLen = 28; // 2(ptr) + 2(type) + 2(class) + 4(ttl) + 2(len) + 16(ip)
         }
 
-        return response;
+        int dnsLen = 12 + questionSectionLen + answerLen;
+        byte[] dnsPayload = new byte[dnsLen];
+        ByteBuffer dnsBuf = ByteBuffer.wrap(dnsPayload);
+
+        // Transaction ID
+        dnsBuf.putShort((short) info.transactionId);
+
+        // Flags: If A or AAAA -> 0x8180 (NOERROR response), otherwise 0x8183 (NXDOMAIN)
+        if (isTypeA || isTypeAAAA) {
+            dnsBuf.putShort((short) 0x8180); // Response, Recursion Desired + Available, NOERROR
+            dnsBuf.putShort((short) 1);      // QDCOUNT
+            dnsBuf.putShort((short) 1);      // ANCOUNT
+        } else {
+            dnsBuf.putShort((short) 0x8183); // Response, NXDOMAIN
+            dnsBuf.putShort((short) 1);      // QDCOUNT
+            dnsBuf.putShort((short) 0);      // ANCOUNT
+        }
+        dnsBuf.putShort((short) 0);          // NSCOUNT
+        dnsBuf.putShort((short) 0);          // ARCOUNT
+
+        // Copy Question section from original packet
+        dnsBuf.put(originalPacket, info.dnsOffset + 12, questionSectionLen);
+
+        if (isTypeA) {
+            dnsBuf.putShort((short) 0xC00C); // Pointer to question name at offset 12
+            dnsBuf.putShort((short) 1);      // Type A
+            dnsBuf.putShort((short) 1);      // Class IN
+            dnsBuf.putInt(60);               // TTL: 60s
+            dnsBuf.putShort((short) 4);      // Length: 4
+            dnsBuf.putInt(0);                // 0.0.0.0
+        } else if (isTypeAAAA) {
+            dnsBuf.putShort((short) 0xC00C); // Pointer to question name at offset 12
+            dnsBuf.putShort((short) 28);     // Type AAAA
+            dnsBuf.putShort((short) 1);      // Class IN
+            dnsBuf.putInt(60);               // TTL: 60s
+            dnsBuf.putShort((short) 16);     // Length: 16
+            for (int i = 0; i < 16; i++) {
+                dnsBuf.put((byte) 0);        // :: (all zeroes)
+            }
+        }
+
+        // Wrap into IP/UDP packet targeting client
+        if (info.ipVersion == 4) {
+            return wrapInIpv4Udp(dnsPayload, 0, dnsLen, info.dstIp, info.srcIp, info.dstPort, info.srcPort);
+        } else {
+            return wrapInIpv6Udp(dnsPayload, 0, dnsLen, info.dstIp, info.srcIp, info.dstPort, info.srcPort);
+        }
     }
 
     /**
-     * Builds an IPv4 UDP packet containing the upstream DNS response to forward back to the client.
+     * Builds an IP/UDP packet containing the upstream DNS response to forward back to the client.
      */
     public static byte[] buildForwardedDnsResponse(byte[] upstreamDnsPayload, int dnsPayloadLen, DnsQueryInfo info) {
-        int totalUdpLen = 8 + dnsPayloadLen;
-        int totalIpLen = 20 + totalUdpLen;
-
-        byte[] response = new byte[totalIpLen];
-        ByteBuffer buf = ByteBuffer.wrap(response);
-
-        // IPv4 Header
-        buf.put((byte) 0x45);
-        buf.put((byte) 0x00);
-        buf.putShort((short) totalIpLen);
-        buf.putShort((short) 0x1234);
-        buf.putShort((short) 0x4000);
-        buf.put((byte) 64);
-        buf.put((byte) 17); // UDP
-        buf.putShort((short) 0); // Checksum placeholder
-
-        // Swap IPs
-        buf.put(info.dstIp);
-        buf.put(info.srcIp);
-
-        // Compute IP checksum
-        int ipChecksum = computeIpChecksum(response, 0, 20);
-        buf.putShort(10, (short) ipChecksum);
-
-        // UDP Header
-        buf.putShort((short) info.dstPort);
-        buf.putShort((short) info.srcPort);
-        buf.putShort((short) totalUdpLen);
-        buf.putShort((short) 0x0000);
-
-        // Upstream DNS Payload
-        buf.put(upstreamDnsPayload, 0, dnsPayloadLen);
-
-        return response;
+        if (info.ipVersion == 4) {
+            return wrapInIpv4Udp(upstreamDnsPayload, 0, dnsPayloadLen, info.dstIp, info.srcIp, info.dstPort, info.srcPort);
+        } else {
+            return wrapInIpv6Udp(upstreamDnsPayload, 0, dnsPayloadLen, info.dstIp, info.srcIp, info.dstPort, info.srcPort);
+        }
     }
 
-    /**
-     * Computes the 16-bit one's complement sum for IPv4 header.
-     */
-    public static int computeIpChecksum(byte[] buf, int offset, int length) {
+    private static byte[] wrapInIpv4Udp(byte[] payload, int offset, int length,
+                                        byte[] srcIp, byte[] dstIp, int srcPort, int dstPort) {
+        int udpLen = 8 + length;
+        int ipLen = 20 + udpLen;
+        byte[] packet = new byte[ipLen];
+        ByteBuffer buf = ByteBuffer.wrap(packet);
+
+        // IPv4 Header (20 bytes)
+        buf.put((byte) 0x45); // Version 4, IHL 5
+        buf.put((byte) 0x00);
+        buf.putShort((short) ipLen);
+        buf.putShort((short) 0x1234);
+        buf.putShort((short) 0x4000); // DF
+        buf.put((byte) 64);           // TTL
+        buf.put((byte) 17);           // Protocol UDP
+        buf.putShort((short) 0);      // IP Checksum placeholder
+        buf.put(srcIp);
+        buf.put(dstIp);
+
+        int ipChecksum = computeChecksum(packet, 0, 20);
+        buf.putShort(10, (short) ipChecksum);
+
+        // UDP Header (8 bytes)
+        buf.putShort((short) srcPort);
+        buf.putShort((short) dstPort);
+        buf.putShort((short) udpLen);
+        buf.putShort((short) 0); // UDP Checksum placeholder
+        buf.put(payload, offset, length);
+
+        int udpChecksum = computeUdpChecksumIpv4(srcIp, dstIp, packet, 20, udpLen);
+        buf.putShort(26, (short) udpChecksum);
+
+        return packet;
+    }
+
+    private static byte[] wrapInIpv6Udp(byte[] payload, int offset, int length,
+                                        byte[] srcIp, byte[] dstIp, int srcPort, int dstPort) {
+        int udpLen = 8 + length;
+        int ipLen = 40 + udpLen;
+        byte[] packet = new byte[ipLen];
+        ByteBuffer buf = ByteBuffer.wrap(packet);
+
+        // IPv6 Header (40 bytes)
+        buf.put((byte) 0x60);
+        buf.put((byte) 0x00);
+        buf.putShort((short) 0x0000); // Flow label
+        buf.putShort((short) udpLen); // Payload length
+        buf.put((byte) 17);           // Next Header (UDP)
+        buf.put((byte) 64);           // Hop Limit
+        buf.put(srcIp);               // 16 bytes
+        buf.put(dstIp);               // 16 bytes
+
+        // UDP Header (8 bytes)
+        buf.putShort((short) srcPort);
+        buf.putShort((short) dstPort);
+        buf.putShort((short) udpLen);
+        buf.putShort((short) 0); // UDP Checksum placeholder
+        buf.put(payload, offset, length);
+
+        int udpChecksum = computeUdpChecksumIpv6(srcIp, dstIp, packet, 40, udpLen);
+        buf.putShort(46, (short) udpChecksum);
+
+        return packet;
+    }
+
+    public static int computeChecksum(byte[] buf, int offset, int length) {
         int sum = 0;
         int i = offset;
         while (length > 1) {
@@ -282,5 +345,62 @@ public class DnsPacketParser {
             sum = (sum & 0xFFFF) + (sum >> 16);
         }
         return ~sum & 0xFFFF;
+    }
+
+    private static int computeUdpChecksumIpv4(byte[] srcIp, byte[] dstIp, byte[] packet, int udpOffset, int udpLen) {
+        int sum = 0;
+        // Pseudo header: Src IP (4 bytes), Dst IP (4 bytes), Protocol (17), UDP Length
+        for (int i = 0; i < 4; i += 2) {
+            sum += (((srcIp[i] & 0xFF) << 8) | (srcIp[i + 1] & 0xFF));
+            sum += (((dstIp[i] & 0xFF) << 8) | (dstIp[i + 1] & 0xFF));
+        }
+        sum += 17; // Protocol UDP
+        sum += udpLen;
+
+        // UDP Header + Data
+        int i = udpOffset;
+        int remaining = udpLen;
+        while (remaining > 1) {
+            sum += (((packet[i] & 0xFF) << 8) | (packet[i + 1] & 0xFF));
+            i += 2;
+            remaining -= 2;
+        }
+        if (remaining > 0) {
+            sum += ((packet[i] & 0xFF) << 8);
+        }
+        while ((sum >> 16) > 0) {
+            sum = (sum & 0xFFFF) + (sum >> 16);
+        }
+        int csum = ~sum & 0xFFFF;
+        return csum == 0 ? 0xFFFF : csum;
+    }
+
+    private static int computeUdpChecksumIpv6(byte[] srcIp, byte[] dstIp, byte[] packet, int udpOffset, int udpLen) {
+        int sum = 0;
+        // Pseudo header: Src IP (16 bytes), Dst IP (16 bytes), UDP Length (32-bit), Next Header (17)
+        for (int i = 0; i < 16; i += 2) {
+            sum += (((srcIp[i] & 0xFF) << 8) | (srcIp[i + 1] & 0xFF));
+            sum += (((dstIp[i] & 0xFF) << 8) | (dstIp[i + 1] & 0xFF));
+        }
+        sum += (udpLen >> 16) & 0xFFFF;
+        sum += udpLen & 0xFFFF;
+        sum += 17; // Next Header UDP
+
+        // UDP Header + Data
+        int i = udpOffset;
+        int remaining = udpLen;
+        while (remaining > 1) {
+            sum += (((packet[i] & 0xFF) << 8) | (packet[i + 1] & 0xFF));
+            i += 2;
+            remaining -= 2;
+        }
+        if (remaining > 0) {
+            sum += ((packet[i] & 0xFF) << 8);
+        }
+        while ((sum >> 16) > 0) {
+            sum = (sum & 0xFFFF) + (sum >> 16);
+        }
+        int csum = ~sum & 0xFFFF;
+        return csum == 0 ? 0xFFFF : csum;
     }
 }

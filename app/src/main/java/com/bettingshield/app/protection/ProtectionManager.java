@@ -89,6 +89,7 @@ public class ProtectionManager {
 
             domainFilter.setBlockedDomains(blocked);
             domainFilter.setAllowedExceptions(allowed);
+            AppLaunchMonitorService.reloadWatchedPackages(context);
         });
     }
 

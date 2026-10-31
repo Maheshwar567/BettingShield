@@ -66,9 +66,23 @@ public class AppLaunchMonitorService extends Service {
         });
     }
 
+    public static void reloadWatchedPackages(Context context) {
+        try {
+            Intent intent = new Intent(context, AppLaunchMonitorService.class);
+            intent.setAction("com.bettingshield.app.RELOAD_PACKAGES");
+            context.startService(intent);
+        } catch (Exception ignored) {}
+    }
+
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        if (intent != null && "com.bettingshield.app.RELOAD_PACKAGES".equals(intent.getAction())) {
+            loadWatchedPackages();
+            return START_STICKY;
+        }
+
         startForeground(NOTIFICATION_ID, buildNotification());
+        loadWatchedPackages();
         if (!isRunning.get()) {
             isRunning.set(true);
             lastCheckTimestamp = System.currentTimeMillis();

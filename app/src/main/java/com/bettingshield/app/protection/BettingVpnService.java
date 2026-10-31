@@ -12,6 +12,7 @@ import android.net.Network;
 import android.net.VpnService;
 import android.os.Build;
 import android.os.ParcelFileDescriptor;
+import android.system.OsConstants;
 import android.util.Log;
 
 import androidx.core.app.NotificationCompat;
@@ -19,15 +20,20 @@ import androidx.core.app.NotificationCompat;
 import com.bettingshield.app.R;
 import com.bettingshield.app.ui.MainActivity;
 
+import java.io.ByteArrayOutputStream;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
-import java.net.Inet4Address;
+import java.net.HttpURLConnection;
 import java.net.InetAddress;
+import java.net.URL;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -36,8 +42,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /**
  * High-performance, non-blocking local DNS-filtering VPN Service.
  * Intercepts DNS queries locally on the device, immediately sinkholing betting/wagering
- * domains to 0.0.0.0, while asynchronously forwarding legitimate traffic using system
- * and public DNS resolvers to ensure full internet connectivity on both Wi-Fi and mobile data.
+ * domains to 0.0.0.0 or NXDOMAIN, while asynchronously forwarding legitimate traffic using system,
+ * public DNS resolvers, and fallback DNS-over-HTTPS (DoH) to guarantee full, uninterrupted
+ * internet connectivity on both Wi-Fi and mobile data (4G/5G, Jio, Airtel, etc.).
  */
 public class BettingVpnService extends VpnService {
 
@@ -48,7 +55,12 @@ public class BettingVpnService extends VpnService {
     private static final int NOTIFICATION_ID = 1001;
 
     private static final int DNS_PORT = 53;
-    private static final String VIRTUAL_DNS_IP = "10.10.10.1";
+
+    // Distinct TUN interface addresses and virtual DNS resolver addresses
+    private static final String VIRTUAL_IPV4_ADDR = "10.10.10.1";
+    private static final String VIRTUAL_IPV4_DNS = "10.10.10.2";
+    private static final String VIRTUAL_IPV6_ADDR = "fd00::1";
+    private static final String VIRTUAL_IPV6_DNS = "fd00::2";
 
     private ParcelFileDescriptor vpnInterface;
     private final AtomicBoolean isRunning = new AtomicBoolean(false);
@@ -56,7 +68,7 @@ public class BettingVpnService extends VpnService {
     private ExecutorService dnsForwarderPool;
 
     private DomainFilter domainFilter;
-    private final List<InetAddress> upstreamResolvers = new ArrayList<>();
+    private final List<InetAddress> upstreamResolvers = Collections.synchronizedList(new ArrayList<>());
 
     @Override
     public void onCreate() {
@@ -89,14 +101,40 @@ public class BettingVpnService extends VpnService {
             Builder builder = new Builder();
             builder.setSession(getString(R.string.app_name));
 
-            // Assign virtual IP to the TUN interface
-            builder.addAddress(VIRTUAL_DNS_IP, 32);
+            // Assign virtual IP to the TUN interface (10.10.10.1/24)
+            builder.addAddress(VIRTUAL_IPV4_ADDR, 24);
 
-            // Configure system DNS to point to the local TUN filter
-            builder.addDnsServer(VIRTUAL_DNS_IP);
+            // Configure system DNS to point to virtual DNS resolver (10.10.10.2)
+            builder.addDnsServer(VIRTUAL_IPV4_DNS);
 
-            // Route ONLY the virtual DNS IP into TUN so all general internet traffic flows normally
-            builder.addRoute(VIRTUAL_DNS_IP, 32);
+            // Route ONLY the virtual DNS IP into TUN (10.10.10.2/32)
+            // This ensures all non-DNS internet traffic bypasses the VPN completely!
+            builder.addRoute(VIRTUAL_IPV4_DNS, 32);
+
+            // Configure IPv6 virtual address and route so IPv6 networks (Jio 5G, Airtel 5G) function normally
+            try {
+                builder.addAddress(VIRTUAL_IPV6_ADDR, 64);
+                builder.addDnsServer(VIRTUAL_IPV6_DNS);
+                builder.addRoute(VIRTUAL_IPV6_DNS, 128);
+            } catch (Exception e) {
+                Log.w(TAG, "IPv6 TUN config not supported by host: " + e.getMessage());
+            }
+
+            // CRITICAL: Allow all apps to bypass the VPN for general traffic
+            builder.allowBypass();
+
+            // CRITICAL: Explicitly allow both address families so Android does not disable IPv6
+            try {
+                builder.allowFamily(OsConstants.AF_INET);
+                builder.allowFamily(OsConstants.AF_INET6);
+            } catch (Exception e) {
+                Log.w(TAG, "Could not set allowFamily: " + e.getMessage());
+            }
+
+            // Set VPN to unmetered on Android 10+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                builder.setMetered(false);
+            }
 
             builder.setBlocking(true);
 
@@ -110,13 +148,12 @@ public class BettingVpnService extends VpnService {
             isRunning.set(true);
             ProtectionManager.getInstance(this).onVpnStateChanged(true);
 
-            // 1 thread for TUN reader, 8 worker threads for non-blocking parallel DNS resolution
             readerExecutor = Executors.newSingleThreadExecutor();
-            dnsForwarderPool = Executors.newFixedThreadPool(8);
+            dnsForwarderPool = Executors.newFixedThreadPool(16);
 
             readerExecutor.execute(this::runTunReader);
 
-            // Trigger background rule update
+            // Background rule update
             Executors.newSingleThreadExecutor().execute(() -> {
                 com.bettingshield.app.updates.RuleUpdateWorker.syncDirect(getApplicationContext());
             });
@@ -145,7 +182,7 @@ public class BettingVpnService extends VpnService {
                     LinkProperties lp = cm.getLinkProperties(activeNet);
                     if (lp != null) {
                         for (InetAddress dns : lp.getDnsServers()) {
-                            if (dns instanceof Inet4Address && !dns.isLoopbackAddress() && !dns.getHostAddress().equals(VIRTUAL_DNS_IP)) {
+                            if (!dns.isLoopbackAddress() && !isLocalVirtualIp(dns)) {
                                 upstreamResolvers.add(dns);
                             }
                         }
@@ -162,9 +199,17 @@ public class BettingVpnService extends VpnService {
             upstreamResolvers.add(InetAddress.getByName("1.1.1.1"));
             upstreamResolvers.add(InetAddress.getByName("8.8.4.4"));
             upstreamResolvers.add(InetAddress.getByName("9.9.9.9"));
+            upstreamResolvers.add(InetAddress.getByName("2001:4860:4860::8888"));
+            upstreamResolvers.add(InetAddress.getByName("2606:4700:4700::1111"));
         } catch (Exception ignored) {}
 
         Log.i(TAG, "Loaded " + upstreamResolvers.size() + " active upstream DNS resolvers");
+    }
+
+    private boolean isLocalVirtualIp(InetAddress addr) {
+        if (addr == null) return false;
+        String host = addr.getHostAddress();
+        return host != null && (host.startsWith("10.10.10.") || host.startsWith("fd00::"));
     }
 
     private void runTunReader() {
@@ -177,7 +222,6 @@ public class BettingVpnService extends VpnService {
                 int length = in.read(packetBuffer);
                 if (length <= 0) continue;
 
-                // Inspect IPv4 UDP DNS query
                 DnsPacketParser.DnsQueryInfo query = DnsPacketParser.parseDnsQuery(packetBuffer, length);
                 if (query == null) {
                     continue; // Skip non-DNS packets
@@ -187,7 +231,7 @@ public class BettingVpnService extends VpnService {
                 boolean isBlocked = domainFilter.isBlocked(domain);
 
                 if (isBlocked) {
-                    // Discreet local sinkhole: synthesize 0.0.0.0 response instantly in 0ms
+                    // Discreet local sinkhole: synthesize 0.0.0.0 / :: / NXDOMAIN response instantly in 0ms
                     byte[] blockedResponse = DnsPacketParser.buildBlockedDnsResponse(packetBuffer, query);
                     synchronized (out) {
                         out.write(blockedResponse);
@@ -196,7 +240,7 @@ public class BettingVpnService extends VpnService {
                     Log.d(TAG, "Locally filtered wagering domain: " + domain);
 
                 } else {
-                    // Legitimate traffic: Dispatch to worker pool asynchronously so in.read() is NEVER blocked!
+                    // Legitimate traffic: Dispatch to worker pool
                     final byte[] packetCopy = Arrays.copyOf(packetBuffer, length);
                     final DnsPacketParser.DnsQueryInfo queryCopy = query;
 
@@ -217,53 +261,127 @@ public class BettingVpnService extends VpnService {
 
     /**
      * Resolves legitimate DNS queries asynchronously without blocking the TUN reader thread.
+     * Uses active network resolvers first, then public resolvers, and falls back to DNS-over-HTTPS (DoH)
+     * if carrier firewalls or captive portals block raw UDP port 53.
      */
     private void forwardDnsQueryAsync(byte[] packet, int length, DnsPacketParser.DnsQueryInfo query, FileOutputStream out) {
-        DatagramSocket socket = null;
         try {
-            socket = new DatagramSocket();
-            // Protect this socket from being routed back into our own VPN interface
-            protect(socket);
-            socket.setSoTimeout(1500); // Fast 1.5 second timeout per upstream query
+            byte[] queryPayload = Arrays.copyOfRange(
+                    packet,
+                    query.dnsOffset,
+                    query.dnsOffset + query.dnsPayloadLength
+            );
 
-            int dnsPayloadOffset = query.dnsOffset;
-            int dnsPayloadLen = length - dnsPayloadOffset;
+            byte[] responsePayload = null;
 
-            // Try resolvers in order until a valid response is received
+            // 1. Fast UDP resolution against active network DNS resolvers (5-20ms)
             for (InetAddress resolver : upstreamResolvers) {
-                try {
-                    DatagramPacket sendPacket = new DatagramPacket(
-                            packet, dnsPayloadOffset, dnsPayloadLen,
-                            resolver, DNS_PORT
-                    );
-                    socket.send(sendPacket);
+                responsePayload = queryUdp(queryPayload, resolver);
+                if (responsePayload != null && responsePayload.length >= 12) {
+                    break;
+                }
+            }
 
-                    byte[] recvBuffer = new byte[1500];
-                    DatagramPacket recvPacket = new DatagramPacket(recvBuffer, recvBuffer.length);
-                    socket.receive(recvPacket);
+            // 2. If UDP timed out or was blocked by carrier (common on Jio/Airtel mobile data), fallback to DoH (443 HTTPS)
+            if (responsePayload == null) {
+                responsePayload = queryDoH(queryPayload);
+            }
 
-                    byte[] forwardedResponse = DnsPacketParser.buildForwardedDnsResponse(
-                            recvPacket.getData(), recvPacket.getLength(), query
-                    );
+            if (responsePayload != null && responsePayload.length >= 12) {
+                byte[] forwardedResponse = DnsPacketParser.buildForwardedDnsResponse(
+                        responsePayload, responsePayload.length, query
+                );
 
-                    synchronized (out) {
-                        out.write(forwardedResponse);
-                        out.flush();
-                    }
-                    return; // Successfully resolved!
-
-                } catch (IOException ignored) {
-                    // Timeout or unreachable on this resolver; try next
+                synchronized (out) {
+                    out.write(forwardedResponse);
+                    out.flush();
                 }
             }
 
         } catch (Exception e) {
             Log.w(TAG, "Error resolving " + query.qName + ": " + e.getMessage());
+        }
+    }
+
+    /**
+     * Sends DNS query over protected UDP socket with fast 600ms timeout.
+     */
+    private byte[] queryUdp(byte[] queryPayload, InetAddress resolver) {
+        DatagramSocket socket = null;
+        try {
+            socket = new DatagramSocket();
+            protect(socket);
+            socket.setSoTimeout(600);
+
+            DatagramPacket sendPacket = new DatagramPacket(
+                    queryPayload, queryPayload.length,
+                    resolver, DNS_PORT
+            );
+            socket.send(sendPacket);
+
+            byte[] recvBuffer = new byte[1500];
+            DatagramPacket recvPacket = new DatagramPacket(recvBuffer, recvBuffer.length);
+            socket.receive(recvPacket);
+
+            return Arrays.copyOf(recvPacket.getData(), recvPacket.getLength());
+        } catch (Exception ignored) {
+            return null;
         } finally {
             if (socket != null && !socket.isClosed()) {
                 socket.close();
             }
         }
+    }
+
+    /**
+     * Resolves DNS queries via RFC 8484 DNS-over-HTTPS (DoH).
+     * Runs over port 443 (HTTPS), which is completely immune to carrier UDP port 53 blocking.
+     */
+    private byte[] queryDoH(byte[] queryPayload) {
+        String[] dohEndpoints = {
+                "https://cloudflare-dns.com/dns-query",
+                "https://dns.google/dns-query"
+        };
+
+        for (String endpoint : dohEndpoints) {
+            HttpURLConnection conn = null;
+            try {
+                URL url = new URL(endpoint);
+                conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("POST");
+                conn.setRequestProperty("Content-Type", "application/dns-message");
+                conn.setRequestProperty("Accept", "application/dns-message");
+                conn.setConnectTimeout(1500);
+                conn.setReadTimeout(1500);
+                conn.setDoOutput(true);
+
+                try (OutputStream os = conn.getOutputStream()) {
+                    os.write(queryPayload);
+                    os.flush();
+                }
+
+                if (conn.getResponseCode() == 200) {
+                    try (InputStream is = conn.getInputStream();
+                         ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
+                        byte[] buf = new byte[1024];
+                        int n;
+                        while ((n = is.read(buf)) != -1) {
+                            baos.write(buf, 0, n);
+                        }
+                        byte[] result = baos.toByteArray();
+                        if (result.length >= 12) {
+                            return result;
+                        }
+                    }
+                }
+            } catch (Exception ignored) {
+            } finally {
+                if (conn != null) {
+                    conn.disconnect();
+                }
+            }
+        }
+        return null;
     }
 
     private synchronized void stopVpn() {
