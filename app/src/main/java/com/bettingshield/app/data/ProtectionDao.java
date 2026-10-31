@@ -66,7 +66,13 @@ public interface ProtectionDao {
     LiveData<Integer> getBlockedPackageCountLiveData();
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
+    void insertPackage(BlockedPackage pkg);
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
     void insertPackages(List<BlockedPackage> packages);
+
+    @Query("DELETE FROM blocked_packages WHERE package_name = :pkg")
+    void deletePackage(String pkg);
 
     @Query("DELETE FROM blocked_packages")
     void clearPackages();

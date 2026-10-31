@@ -27,4 +27,5 @@
     
     <color name="divider_color">#E0E4E7</color>
     <color name="card_background">#FFFFFF</color>
+    <color name="white">#FFFFFF</color>
 </resources>
