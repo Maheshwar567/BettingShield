@@ -6,6 +6,9 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
+import android.net.ConnectivityManager;
+import android.net.LinkProperties;
+import android.net.Network;
 import android.net.VpnService;
 import android.os.Build;
 import android.os.ParcelFileDescriptor;
@@ -21,15 +24,20 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
+import java.net.Inet4Address;
 import java.net.InetAddress;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Local DNS-filtering VPN Service.
- * Intercepts DNS queries locally on the device and filters known betting domains
- * without routing general payload traffic or storing browsing history.
+ * High-performance, non-blocking local DNS-filtering VPN Service.
+ * Intercepts DNS queries locally on the device, immediately sinkholing betting/wagering
+ * domains to 0.0.0.0, while asynchronously forwarding legitimate traffic using system
+ * and public DNS resolvers to ensure full internet connectivity on both Wi-Fi and mobile data.
  */
 public class BettingVpnService extends VpnService {
 
@@ -39,16 +47,16 @@ public class BettingVpnService extends VpnService {
     private static final String CHANNEL_ID = "bettingshield_vpn_channel";
     private static final int NOTIFICATION_ID = 1001;
 
-    // Upstream DNS Resolvers (Cloudflare & Google Public DNS)
-    private static final String UPSTREAM_DNS_PRIMARY = "1.1.1.1";
-    private static final String UPSTREAM_DNS_SECONDARY = "8.8.8.8";
     private static final int DNS_PORT = 53;
+    private static final String VIRTUAL_DNS_IP = "10.10.10.1";
 
     private ParcelFileDescriptor vpnInterface;
     private final AtomicBoolean isRunning = new AtomicBoolean(false);
-    private ExecutorService vpnExecutor;
+    private ExecutorService readerExecutor;
+    private ExecutorService dnsForwarderPool;
 
     private DomainFilter domainFilter;
+    private final List<InetAddress> upstreamResolvers = new ArrayList<>();
 
     @Override
     public void onCreate() {
@@ -76,22 +84,19 @@ public class BettingVpnService extends VpnService {
         }
 
         try {
+            refreshUpstreamResolvers();
+
             Builder builder = new Builder();
             builder.setSession(getString(R.string.app_name));
-            
+
             // Assign virtual IP to the TUN interface
-            builder.addAddress("10.10.10.1", 32);
+            builder.addAddress(VIRTUAL_DNS_IP, 32);
 
-            // Configure DNS server to route DNS traffic through the local TUN device
-            builder.addDnsServer("10.10.10.1");
+            // Configure system DNS to point to the local TUN filter
+            builder.addDnsServer(VIRTUAL_DNS_IP);
 
-            // Route DNS traffic destinations to TUN to intercept all DNS queries
-            builder.addRoute("10.10.10.1", 32);
-            builder.addRoute("8.8.8.8", 32);
-            builder.addRoute("8.8.4.4", 32);
-            builder.addRoute("1.1.1.1", 32);
-            builder.addRoute("1.0.0.1", 32);
-            builder.addRoute("9.9.9.9", 32);
+            // Route ONLY the virtual DNS IP into TUN so all general internet traffic flows normally
+            builder.addRoute(VIRTUAL_DNS_IP, 32);
 
             builder.setBlocking(true);
 
@@ -105,9 +110,14 @@ public class BettingVpnService extends VpnService {
             isRunning.set(true);
             ProtectionManager.getInstance(this).onVpnStateChanged(true);
 
-            vpnExecutor = Executors.newFixedThreadPool(3);
-            vpnExecutor.execute(this::runTunReader);
-            vpnExecutor.execute(() -> {
+            // 1 thread for TUN reader, 8 worker threads for non-blocking parallel DNS resolution
+            readerExecutor = Executors.newSingleThreadExecutor();
+            dnsForwarderPool = Executors.newFixedThreadPool(8);
+
+            readerExecutor.execute(this::runTunReader);
+
+            // Trigger background rule update
+            Executors.newSingleThreadExecutor().execute(() -> {
                 com.bettingshield.app.updates.RuleUpdateWorker.syncDirect(getApplicationContext());
             });
 
@@ -120,27 +130,47 @@ public class BettingVpnService extends VpnService {
         }
     }
 
+    /**
+     * Finds active system Wi-Fi / Mobile Data DNS resolvers, with fallback to Google and Cloudflare.
+     */
+    private void refreshUpstreamResolvers() {
+        upstreamResolvers.clear();
+
+        // 1. Discover current active network's DNS servers (Router / Carrier DNS)
+        try {
+            ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+            if (cm != null) {
+                Network activeNet = cm.getActiveNetwork();
+                if (activeNet != null) {
+                    LinkProperties lp = cm.getLinkProperties(activeNet);
+                    if (lp != null) {
+                        for (InetAddress dns : lp.getDnsServers()) {
+                            if (dns instanceof Inet4Address && !dns.isLoopbackAddress() && !dns.getHostAddress().equals(VIRTUAL_DNS_IP)) {
+                                upstreamResolvers.add(dns);
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Could not query active network DNS: " + e.getMessage());
+        }
+
+        // 2. Add high-reliability public resolvers as fallbacks
+        try {
+            upstreamResolvers.add(InetAddress.getByName("8.8.8.8"));
+            upstreamResolvers.add(InetAddress.getByName("1.1.1.1"));
+            upstreamResolvers.add(InetAddress.getByName("8.8.4.4"));
+            upstreamResolvers.add(InetAddress.getByName("9.9.9.9"));
+        } catch (Exception ignored) {}
+
+        Log.i(TAG, "Loaded " + upstreamResolvers.size() + " active upstream DNS resolvers");
+    }
+
     private void runTunReader() {
         FileInputStream in = new FileInputStream(vpnInterface.getFileDescriptor());
         FileOutputStream out = new FileOutputStream(vpnInterface.getFileDescriptor());
         byte[] packetBuffer = new byte[32767];
-
-        DatagramSocket upstreamSocket = null;
-        try {
-            upstreamSocket = new DatagramSocket();
-            // Protect this socket from being routed back into our own VPN interface
-            protect(upstreamSocket);
-            upstreamSocket.setSoTimeout(3000); // 3 second timeout for DNS queries
-        } catch (Exception e) {
-            Log.e(TAG, "Unable to create protected upstream socket", e);
-        }
-
-        InetAddress primaryDns = null;
-        InetAddress secondaryDns = null;
-        try {
-            primaryDns = InetAddress.getByName(UPSTREAM_DNS_PRIMARY);
-            secondaryDns = InetAddress.getByName(UPSTREAM_DNS_SECONDARY);
-        } catch (Exception ignored) {}
 
         while (isRunning.get()) {
             try {
@@ -157,7 +187,7 @@ public class BettingVpnService extends VpnService {
                 boolean isBlocked = domainFilter.isBlocked(domain);
 
                 if (isBlocked) {
-                    // Discreet local sinkhole: synthesize 0.0.0.0 or NXDOMAIN
+                    // Discreet local sinkhole: synthesize 0.0.0.0 response instantly in 0ms
                     byte[] blockedResponse = DnsPacketParser.buildBlockedDnsResponse(packetBuffer, query);
                     synchronized (out) {
                         out.write(blockedResponse);
@@ -165,57 +195,18 @@ public class BettingVpnService extends VpnService {
                     }
                     Log.d(TAG, "Locally filtered wagering domain: " + domain);
 
-                } else if (upstreamSocket != null && primaryDns != null) {
-                    // Legitimate traffic: Forward DNS payload upstream and return answer to client
-                    int dnsPayloadOffset = query.dnsOffset;
-                    int dnsPayloadLen = length - dnsPayloadOffset;
+                } else {
+                    // Legitimate traffic: Dispatch to worker pool asynchronously so in.read() is NEVER blocked!
+                    final byte[] packetCopy = Arrays.copyOf(packetBuffer, length);
+                    final DnsPacketParser.DnsQueryInfo queryCopy = query;
 
-                    DatagramPacket sendPacket = new DatagramPacket(
-                            packetBuffer, dnsPayloadOffset, dnsPayloadLen,
-                            primaryDns, DNS_PORT
-                    );
-
-                    upstreamSocket.send(sendPacket);
-
-                    byte[] recvBuffer = new byte[1500];
-                    DatagramPacket recvPacket = new DatagramPacket(recvBuffer, recvBuffer.length);
-                    
-                    try {
-                        upstreamSocket.receive(recvPacket);
-
-                        byte[] forwardedResponse = DnsPacketParser.buildForwardedDnsResponse(
-                                recvPacket.getData(), recvPacket.getLength(), query
-                        );
-
-                        synchronized (out) {
-                            out.write(forwardedResponse);
-                            out.flush();
-                        }
-                    } catch (IOException timeoutEx) {
-                        // Retry with secondary DNS if primary timed out
-                        if (secondaryDns != null) {
-                            sendPacket.setAddress(secondaryDns);
-                            upstreamSocket.send(sendPacket);
-                            upstreamSocket.receive(recvPacket);
-                            byte[] forwardedResponse = DnsPacketParser.buildForwardedDnsResponse(
-                                    recvPacket.getData(), recvPacket.getLength(), query
-                            );
-                            synchronized (out) {
-                                out.write(forwardedResponse);
-                                out.flush();
-                            }
-                        }
-                    }
+                    dnsForwarderPool.execute(() -> forwardDnsQueryAsync(packetCopy, length, queryCopy, out));
                 }
 
             } catch (Exception e) {
                 if (!isRunning.get()) break;
-                Log.w(TAG, "Error processing DNS packet: " + e.getMessage());
+                Log.w(TAG, "Error in TUN read loop: " + e.getMessage());
             }
-        }
-
-        if (upstreamSocket != null && !upstreamSocket.isClosed()) {
-            upstreamSocket.close();
         }
 
         try {
@@ -224,24 +215,73 @@ public class BettingVpnService extends VpnService {
         } catch (IOException ignored) {}
     }
 
+    /**
+     * Resolves legitimate DNS queries asynchronously without blocking the TUN reader thread.
+     */
+    private void forwardDnsQueryAsync(byte[] packet, int length, DnsPacketParser.DnsQueryInfo query, FileOutputStream out) {
+        DatagramSocket socket = null;
+        try {
+            socket = new DatagramSocket();
+            // Protect this socket from being routed back into our own VPN interface
+            protect(socket);
+            socket.setSoTimeout(1500); // Fast 1.5 second timeout per upstream query
+
+            int dnsPayloadOffset = query.dnsOffset;
+            int dnsPayloadLen = length - dnsPayloadOffset;
+
+            // Try resolvers in order until a valid response is received
+            for (InetAddress resolver : upstreamResolvers) {
+                try {
+                    DatagramPacket sendPacket = new DatagramPacket(
+                            packet, dnsPayloadOffset, dnsPayloadLen,
+                            resolver, DNS_PORT
+                    );
+                    socket.send(sendPacket);
+
+                    byte[] recvBuffer = new byte[1500];
+                    DatagramPacket recvPacket = new DatagramPacket(recvBuffer, recvBuffer.length);
+                    socket.receive(recvPacket);
+
+                    byte[] forwardedResponse = DnsPacketParser.buildForwardedDnsResponse(
+                            recvPacket.getData(), recvPacket.getLength(), query
+                    );
+
+                    synchronized (out) {
+                        out.write(forwardedResponse);
+                        out.flush();
+                    }
+                    return; // Successfully resolved!
+
+                } catch (IOException ignored) {
+                    // Timeout or unreachable on this resolver; try next
+                }
+            }
+
+        } catch (Exception e) {
+            Log.w(TAG, "Error resolving " + query.qName + ": " + e.getMessage());
+        } finally {
+            if (socket != null && !socket.isClosed()) {
+                socket.close();
+            }
+        }
+    }
+
     private synchronized void stopVpn() {
         isRunning.set(false);
-        if (vpnExecutor != null) {
-            vpnExecutor.shutdownNow();
-            vpnExecutor = null;
+        if (readerExecutor != null) {
+            readerExecutor.shutdownNow();
         }
-
+        if (dnsForwarderPool != null) {
+            dnsForwarderPool.shutdownNow();
+        }
         if (vpnInterface != null) {
             try {
                 vpnInterface.close();
-            } catch (IOException e) {
-                Log.e(TAG, "Error closing VPN descriptor", e);
-            }
+            } catch (IOException ignored) {}
             vpnInterface = null;
         }
-
         ProtectionManager.getInstance(this).onVpnStateChanged(false);
-        Log.i(TAG, "BettingShield VPN filtering engine stopped");
+        Log.i(TAG, "BettingShield VPN stopped");
     }
 
     @Override
@@ -268,17 +308,10 @@ public class BettingVpnService extends VpnService {
     }
 
     private Notification buildForegroundNotification() {
-        Intent intent = new Intent(this, MainActivity.class);
+        Intent launchIntent = new Intent(this, MainActivity.class);
         PendingIntent pendingIntent = PendingIntent.getActivity(
-                this, 0, intent,
+                this, 0, launchIntent,
                 PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT
-        );
-
-        Intent stopIntent = new Intent(this, BettingVpnService.class);
-        stopIntent.setAction(ACTION_STOP);
-        PendingIntent stopPendingIntent = PendingIntent.getService(
-                this, 1, stopIntent,
-                PendingIntent.FLAG_IMMUTABLE
         );
 
         return new NotificationCompat.Builder(this, CHANNEL_ID)
@@ -288,7 +321,6 @@ public class BettingVpnService extends VpnService {
                 .setContentIntent(pendingIntent)
                 .setOngoing(true)
                 .setPriority(NotificationCompat.PRIORITY_LOW)
-                .addAction(0, getString(R.string.action_pause), stopPendingIntent)
                 .build();
     }
 }
