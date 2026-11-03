@@ -255,11 +255,14 @@
         Add Android package IDs for betting apps to trigger automatic network blocking and mindful pause screens.
       </p>
 
-      <form id="addPackageForm" class="add-form">
-        <input type="text" id="newPkgIdInput" placeholder="Package ID: e.g. com.betting.app" required>
-        <input type="text" id="newPkgNameInput" placeholder="App Name: e.g. BetFast">
-        <button type="submit" class="btn-action-add">+ Add App</button>
+      <form id="addPackageForm" class="add-form" style="display: flex; gap: 8px; flex-wrap: wrap;">
+        <input type="text" id="newPkgNameInput" placeholder="App Name (e.g. Sony LIV, Bet365, Dream11)" style="flex: 2; min-width: 220px;" required>
+        <input type="text" id="newPkgIdInput" placeholder="Package ID: auto-detected (or e.g. com.sonyliv)" style="flex: 2; min-width: 220px;">
+        <button type="submit" class="btn-action-add" style="flex: 1; min-width: 120px;">+ Block App</button>
       </form>
+      <p style="color: #38bdf8; font-size: 12px; margin-top: 6px;">
+        ✨ <strong>Tip:</strong> Simply type the App Name (e.g. <code>Sony LIV</code> or <code>Dream11</code>). The package identifier is resolved automatically!
+      </p>
 
       <input type="text" id="searchPackages" class="search-filter" placeholder="Search monitored apps...">
 
@@ -435,12 +438,25 @@
       }
     };
 
+    // Auto-lookup package name when admin types app name
+    document.getElementById('newPkgNameInput').addEventListener('input', async (e) => {
+      const q = e.target.value.trim();
+      if (!q) return;
+      try {
+        const res = await fetch(`/api/lookup-app?q=${encodeURIComponent(q)}`);
+        const data = await res.json();
+        if (data && data.found && data.app) {
+          document.getElementById('newPkgIdInput').value = data.app.package;
+        }
+      } catch (err) {}
+    });
+
     // Add Package
     document.getElementById('addPackageForm').addEventListener('submit', async (e) => {
       e.preventDefault();
-      const pkg = document.getElementById('newPkgIdInput').value.trim();
-      const name = document.getElementById('newPkgNameInput').value.trim() || pkg;
-      if (!pkg) return;
+      let pkg = document.getElementById('newPkgIdInput').value.trim();
+      let name = document.getElementById('newPkgNameInput').value.trim();
+      if (!name && !pkg) return;
 
       const res = await fetch('/api/admin/add-package', {
         method: 'POST',
@@ -448,13 +464,13 @@
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${authToken}`
         },
-        body: JSON.stringify({ package: pkg, name })
+        body: JSON.stringify({ package: pkg, name: name })
       });
       const data = await res.json();
       if (data.success) {
         document.getElementById('newPkgIdInput').value = '';
         document.getElementById('newPkgNameInput').value = '';
-        showToast(`Added app: ${name}`);
+        showToast(`App blocked: ${name || data.package} (${data.package})`);
         loadAdminRules();
       } else {
         alert(data.error || 'Failed to add app');

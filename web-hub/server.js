@@ -247,6 +247,73 @@ const server = http.createServer(async (req, res) => {
         return;
     }
 
+    // Catalog of known popular apps (Betting, Fantasy, Streaming like Sony LIV, etc.)
+    const APP_CATALOG = [
+        { name: "Sony LIV", package: "com.sonyliv", category: "Streaming / Entertainment" },
+        { name: "SonyLIV", package: "com.sonyliv", category: "Streaming / Entertainment" },
+        { name: "Disney+ Hotstar", package: "in.startv.hotstar", category: "Streaming / Entertainment" },
+        { name: "Hotstar", package: "in.startv.hotstar", category: "Streaming / Entertainment" },
+        { name: "JioCinema", package: "com.jio.media.ondemand", category: "Streaming / Entertainment" },
+        { name: "Netflix", package: "com.netflix.mediaclient", category: "Streaming / Entertainment" },
+        { name: "Amazon Prime Video", package: "com.amazon.avod.thirdpartyclient", category: "Streaming / Entertainment" },
+        { name: "Zee5", package: "com.graymatrix.did", category: "Streaming / Entertainment" },
+        { name: "Aha", package: "aha.smart.ott", category: "Streaming / Entertainment" },
+        { name: "MX Player", package: "com.mxtech.videoplayer.ad", category: "Streaming / Entertainment" },
+        { name: "Bet365", package: "com.bet365Wrapper.Bet365_Application", category: "Wagering" },
+        { name: "Stake", package: "com.stake.app", category: "Wagering" },
+        { name: "1xBet", package: "org.xbet.client", category: "Wagering" },
+        { name: "Parimatch", package: "com.parimatch.app", category: "Wagering" },
+        { name: "Dream11", package: "com.dream11.app", category: "Fantasy / Wagering" },
+        { name: "MPL", package: "com.mpl.androidapp", category: "Real Money Gaming" },
+        { name: "My11Circle", package: "com.games24x7.my11circle", category: "Fantasy / Wagering" },
+        { name: "RummyCircle", package: "com.games24x7.rummycircle.rummy", category: "Wagering" },
+        { name: "Junglee Rummy", package: "com.jungleerummy.play", category: "Wagering" },
+        { name: "PokerBaazi", package: "com.pokerbaazi", category: "Wagering" },
+        { name: "WinZO", package: "com.winzo.gold", category: "Real Money Gaming" },
+        { name: "Zupee", package: "com.zupee.app", category: "Real Money Gaming" },
+        { name: "A23", package: "com.hdworks.a23", category: "Wagering" },
+        { name: "Howzat", package: "com.howzat.fantasy", category: "Fantasy / Wagering" },
+        { name: "Playveer", package: "com.playveer.app", category: "Wagering" },
+        { name: "YouTube", package: "com.google.android.youtube", category: "Video" },
+        { name: "Instagram", package: "com.instagram.android", category: "Social" },
+        { name: "Chrome", package: "com.android.chrome", category: "Browser" }
+    ];
+
+    function lookupApp(query) {
+        if (!query) return null;
+        const qClean = query.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+        for (const item of APP_CATALOG) {
+            const nameClean = item.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+            if (nameClean === qClean || nameClean.includes(qClean) || qClean.includes(nameClean)) {
+                return item;
+            }
+        }
+        return null;
+    }
+
+    // API: App Name to Package Lookup
+    if (pathname === '/api/lookup-app') {
+        const query = parsedUrl.searchParams.get('q') || '';
+        const match = lookupApp(query);
+        const matches = [];
+        if (query) {
+            const qClean = query.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+            for (const item of APP_CATALOG) {
+                const nameClean = item.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+                if (nameClean.includes(qClean) || item.package.toLowerCase().includes(qClean)) {
+                    matches.push(item);
+                }
+            }
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+            found: !!match,
+            app: match,
+            results: matches
+        }));
+        return;
+    }
+
     // API: Test Domain Real-time
     if (pathname === '/api/test-domain') {
         const domain = parsedUrl.searchParams.get('domain') || '';
@@ -501,15 +568,29 @@ const server = http.createServer(async (req, res) => {
             return;
         }
         const body = await parseJsonBody(req);
-        const pkg = (body.package || '').trim();
-        const name = (body.name || pkg).trim();
-        const category = (body.category || 'Wagering').trim();
+        let pkg = (body.package || '').trim();
+        let name = (body.name || '').trim();
+        let category = (body.category || 'Wagering').trim();
+
+        // If package not provided or invalid, attempt auto-resolution by name
+        if (!pkg || !pkg.includes('.')) {
+            const resolved = lookupApp(name || pkg);
+            if (resolved) {
+                pkg = resolved.package;
+                if (!name) name = resolved.name;
+                category = resolved.category;
+            } else if (name.includes('.') && !name.includes(' ')) {
+                pkg = name;
+            }
+        }
 
         if (!pkg || !pkg.includes('.')) {
             res.writeHead(400, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: "Invalid package identifier." }));
+            res.end(JSON.stringify({ error: `Could not determine package identifier for '${name || pkg}'. Please provide package ID.` }));
             return;
         }
+
+        if (!name) name = pkg;
 
         const existing = rulesData.packages.find(p => p.package === pkg);
         if (!existing) {

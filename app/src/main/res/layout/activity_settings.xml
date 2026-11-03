@@ -214,15 +214,16 @@
                     <!-- Quick Button: Pick from installed apps -->
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btnPickInstalledApp"
-                        style="@style/Widget.Material3.Button.OutlinedButton"
+                        style="@style/Widget.Material3.Button.TonalButton"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="10dp"
-                        android:text="➕ Pick from Installed Apps on Phone"
+                        android:text="🔍 Browse &amp; Select Installed App"
                         android:textAllCaps="false"
+                        app:icon="@android:drawable/ic_menu_search"
                         app:cornerRadius="8dp" />
 
-                    <!-- Manual Add App Form -->
+                    <!-- Search / Enter App Name Form -->
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
@@ -235,25 +236,10 @@
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:hint="App Name (e.g. Stake)">
+                            android:hint="App Name (e.g. Sony LIV, Bet365)">
 
                             <com.google.android.material.textfield.TextInputEditText
                                 android:id="@+id/etAppName"
-                                android:layout_width="match_parent"
-                                android:layout_height="wrap_content"
-                                android:inputType="text" />
-                        </com.google.android.material.textfield.TextInputLayout>
-
-                        <com.google.android.material.textfield.TextInputLayout
-                            style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:layout_marginStart="6dp"
-                            android:hint="Package (e.g. com.stake)">
-
-                            <com.google.android.material.textfield.TextInputEditText
-                                android:id="@+id/etPackageName"
                                 android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
                                 android:inputType="text" />
@@ -263,11 +249,36 @@
                             android:id="@+id/btnAddPackage"
                             android:layout_width="wrap_content"
                             android:layout_height="56dp"
-                            android:layout_marginStart="6dp"
-                            android:text="Add"
+                            android:layout_marginStart="8dp"
+                            android:text="Block"
                             android:textAllCaps="false"
                             app:cornerRadius="8dp" />
                     </LinearLayout>
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:text="✨ You only need to type the App Name (e.g. Sony LIV). The package ID is detected automatically!"
+                        android:textColor="@color/on_surface_variant"
+                        android:textSize="11sp" />
+
+                    <!-- Optional Package Input (maintained for backward compatibility) -->
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:id="@+id/tilPackageName"
+                        style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:visibility="gone"
+                        android:hint="Optional: Exact Package ID">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/etPackageName"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:inputType="text" />
+                    </com.google.android.material.textfield.TextInputLayout>
 
                     <!-- Blocked Apps List -->
                     <TextView

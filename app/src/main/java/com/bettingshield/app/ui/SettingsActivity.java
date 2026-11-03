@@ -7,6 +7,8 @@ import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.Settings;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.widget.EditText;
@@ -20,6 +22,7 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.bettingshield.app.R;
+import com.bettingshield.app.data.AppCatalog;
 import com.bettingshield.app.data.BlockedDomain;
 import com.bettingshield.app.data.BlockedPackage;
 import com.bettingshield.app.data.ProtectionDao;
@@ -216,76 +219,144 @@ public class SettingsActivity extends AppCompatActivity {
     }
 
     private void addBlockedPackage() {
-        String appName = etAppName.getText() != null ? etAppName.getText().toString().trim() : "";
-        String pkg = etPackageName.getText() != null ? etPackageName.getText().toString().trim() : "";
+        String input = etAppName.getText() != null ? etAppName.getText().toString().trim() : "";
+        String explicitPkg = etPackageName != null && etPackageName.getText() != null ?
+                etPackageName.getText().toString().trim() : "";
 
-        if (pkg.isEmpty() || !pkg.contains(".")) {
-            Toast.makeText(this, "Enter valid package name (e.g. com.bet365)", Toast.LENGTH_SHORT).show();
+        if (input.isEmpty() && explicitPkg.isEmpty()) {
+            Toast.makeText(this, "Enter app name (e.g. Sony LIV, Bet365)", Toast.LENGTH_SHORT).show();
             return;
         }
 
-        if (appName.isEmpty()) {
-            appName = pkg;
+        String resolvedName = input;
+        String resolvedPkg = explicitPkg;
+
+        // 1. If user typed an explicit package (contains dot and no spaces, e.g. com.sonyliv)
+        if (!explicitPkg.isEmpty() && explicitPkg.contains(".")) {
+            if (resolvedName.isEmpty()) resolvedName = explicitPkg;
+        } else if (input.contains(".") && !input.contains(" ")) {
+            resolvedPkg = input;
+            resolvedName = input;
+        } else {
+            // 2. User provided an App Name (e.g. "Sony LIV", "Dream11", "Bet365")
+            // Search installed applications on this phone first
+            PackageManager pm = getPackageManager();
+            List<ApplicationInfo> installed = pm.getInstalledApplications(PackageManager.GET_META_DATA);
+            for (ApplicationInfo info : installed) {
+                if (info.packageName.equals(getPackageName())) continue;
+                String label = pm.getApplicationLabel(info).toString();
+                if (label.equalsIgnoreCase(input)) {
+                    resolvedPkg = info.packageName;
+                    resolvedName = label;
+                    break;
+                }
+            }
+
+            // Substring search on installed apps if exact name didn't match
+            if (resolvedPkg.isEmpty()) {
+                for (ApplicationInfo info : installed) {
+                    if (info.packageName.equals(getPackageName())) continue;
+                    String label = pm.getApplicationLabel(info).toString();
+                    if (label.toLowerCase().contains(input.toLowerCase())) {
+                        resolvedPkg = info.packageName;
+                        resolvedName = label;
+                        break;
+                    }
+                }
+            }
+
+            // 3. Search built-in AppCatalog (Sony LIV, Bet365, Hotstar, Dream11, Stake, etc.)
+            if (resolvedPkg.isEmpty()) {
+                AppCatalog.AppInfo catalogInfo = AppCatalog.findByName(input);
+                if (catalogInfo != null) {
+                    resolvedPkg = catalogInfo.packageName;
+                    resolvedName = catalogInfo.appName;
+                }
+            }
         }
 
-        final String finalAppName = appName;
+        if (resolvedPkg.isEmpty() || !resolvedPkg.contains(".")) {
+            new AlertDialog.Builder(this)
+                    .setTitle("App Not Found")
+                    .setMessage("Could not automatically find a package ID for '" + input + "'.\n\n" +
+                            "• Tap 'Browse Installed Apps' to pick any app on your phone with 1 tap.\n" +
+                            "• Or enter the exact package identifier (e.g. com.sonyliv).")
+                    .setPositiveButton("Browse Installed Apps", (d, w) -> showInstalledAppsPicker())
+                    .setNegativeButton("Cancel", null)
+                    .show();
+            return;
+        }
+
+        saveAndBlockPackage(resolvedName, resolvedPkg);
+    }
+
+    private void saveAndBlockPackage(String appName, String pkg) {
         ProtectionDatabase.databaseWriteExecutor.execute(() -> {
             BlockedPackage bp = new BlockedPackage(
                     pkg,
-                    finalAppName,
-                    "admin_added_wagering",
+                    appName,
+                    "admin_added",
                     System.currentTimeMillis()
             );
             ProtectionDatabase.getDatabase(this).protectionDao().insertPackage(bp);
             protectionManager.reloadRulesFromDatabase();
-            notifyHubAddPackage(pkg, finalAppName);
+            notifyHubAddPackage(pkg, appName);
         });
 
         etAppName.setText("");
-        etPackageName.setText("");
-        Toast.makeText(this, "App Blocked: " + finalAppName, Toast.LENGTH_SHORT).show();
+        if (etPackageName != null) etPackageName.setText("");
+        Toast.makeText(this, "App Blocked: " + appName + " (" + pkg + ")", Toast.LENGTH_SHORT).show();
     }
 
     private void showInstalledAppsPicker() {
         PackageManager pm = getPackageManager();
-        List<ApplicationInfo> apps = pm.getInstalledApplications(PackageManager.GET_META_DATA);
+        List<ApplicationInfo> installed = pm.getInstalledApplications(PackageManager.GET_META_DATA);
 
-        List<AppEntry> userApps = new ArrayList<>();
-        for (ApplicationInfo info : apps) {
-            // Exclude our own app and core system apps that are not launchable
+        List<AppPickerAdapter.AppItem> userApps = new ArrayList<>();
+        for (ApplicationInfo info : installed) {
             if (info.packageName.equals(getPackageName())) continue;
+            // Only list launchable apps that users can interact with
             if (pm.getLaunchIntentForPackage(info.packageName) != null) {
                 String label = pm.getApplicationLabel(info).toString();
-                userApps.add(new AppEntry(label, info.packageName));
+                userApps.add(new AppPickerAdapter.AppItem(label, info.packageName, pm.getApplicationIcon(info)));
             }
         }
 
-        Collections.sort(userApps, (a, b) -> a.name.compareToIgnoreCase(b.name));
+        userApps.sort((a, b) -> a.name.compareToIgnoreCase(b.name));
 
-        String[] displayNames = new String[userApps.size()];
-        for (int i = 0; i < userApps.size(); i++) {
-            displayNames[i] = userApps.get(i).name + " (" + userApps.get(i).packageName + ")";
-        }
+        View dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_app_picker, null);
+        EditText etSearchApps = dialogView.findViewById(R.id.etSearchApps);
+        RecyclerView rvPickerApps = dialogView.findViewById(R.id.rvPickerApps);
+        TextView tvNoAppsFound = dialogView.findViewById(R.id.tvNoAppsFound);
 
-        new AlertDialog.Builder(this)
-                .setTitle("Select App on Phone to Block")
-                .setItems(displayNames, (dialog, which) -> {
-                    AppEntry selected = userApps.get(which);
-                    etAppName.setText(selected.name);
-                    etPackageName.setText(selected.packageName);
-                    addBlockedPackage();
-                })
-                .setNegativeButton("Cancel", null)
-                .show();
-    }
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setView(dialogView)
+                .setNegativeButton("Close", null)
+                .create();
 
-    private static class AppEntry {
-        String name;
-        String packageName;
-        AppEntry(String name, String packageName) {
-            this.name = name;
-            this.packageName = packageName;
-        }
+        AppPickerAdapter adapter = new AppPickerAdapter(userApps, selected -> {
+            dialog.dismiss();
+            saveAndBlockPackage(selected.name, selected.packageName);
+        });
+
+        rvPickerApps.setLayoutManager(new LinearLayoutManager(this));
+        rvPickerApps.setAdapter(adapter);
+
+        etSearchApps.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+                adapter.filter(s != null ? s.toString() : "");
+                tvNoAppsFound.setVisibility(adapter.getFilteredCount() == 0 ? View.VISIBLE : View.GONE);
+            }
+
+            @Override
+            public void afterTextChanged(Editable s) {}
+        });
+
+        dialog.show();
     }
 
     private void triggerHubSync() {
